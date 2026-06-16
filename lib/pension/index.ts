@@ -2,7 +2,7 @@
  * Federal PSPP pension engine — pure functions, no React/IO.
  *
  * FEDERAL ONLY. Unreduced eligibility is age-and-service thresholds; there is NO rule of 85.
- * Constants come from the dated config — never inline rates here. See CLAUDE.md and
+ * Constants come from the dated config — never inline rates here. See the project notes and
  * docs/retirement-financial-planning-tool-plan.md.md §4 / edge-cases §1.
  */
 

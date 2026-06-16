@@ -181,5 +181,5 @@ When a source isn't on canada.ca / a federal union (PSAC, PIPSC) explaining the 
 - **OAS clawback must run off prior-year income** with the one-year lag, and **TFSA must be excluded** from the clawback/GIS income base — get this wiring right or the meltdown's whole value proposition computes wrong.
 - **Pension income splitting** is the biggest couple-mode tax lever, and its **RPP-any-age vs RRIF-65+** asymmetry is the subtle bit to encode correctly.
 - **Estate value after terminal tax** deserves to be a headline output — it's half the reason the meltdown exists.
-- Keep the **federal-only guardrail** (§0) visible in `CLAUDE.md`; the single most likely accuracy bug is a contributor pulling a "rule of 85" or a provincial contribution rate from a same-named plan.
+- Keep the **federal-only guardrail** (§0) visible in the project working notes; the single most likely accuracy bug is a contributor pulling a "rule of 85" or a provincial contribution rate from a same-named plan.
 - Everything dated here is a **2026 constant to re-verify annually**; wire it all through the dated config, never inline.

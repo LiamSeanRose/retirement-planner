@@ -3,7 +3,7 @@
  * and related federal benefits (CPP, OAS).
  *
  * FEDERAL ONLY. Do not mix in rules from similarly named provincial plans (BC PSPP,
- * Alberta PSPP, NS PSSP). The federal plan has NO rule of 85. See CLAUDE.md §guardrail.
+ * Alberta PSPP, NS PSSP). The federal plan has NO rule of 85. See the project notes guardrail.
  *
  * Every value here is a 2026 figure set/indexed/legislated annually. Re-verify each year
  * against canada.ca / PSPC / CRA / Service Canada. Never inline these numbers elsewhere.

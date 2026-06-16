@@ -1,7 +1,7 @@
 # Retirement Financial Planning Tool — Project & Build Plan (v2, expanded scope)
 
 **Working title:** Federal Retirement Planner (Liam + Dad to name it)
-**Status:** Planning. Source of truth for Claude Code. Free to change — no PRs, no gates. If a better approach appears mid-build, update this doc and keep moving.
+**Status:** Planning. Source of truth for the build. Free to change — no PRs, no gates. If a better approach appears mid-build, update this doc and keep moving.
 **Supersedes:** v1 (pension-only early-retirement calculator). Scope is now a complete retirement financial-planning tool.
 **Last researched:** June 16, 2026 — pension, CPP/OAS, RRIF, tax, and RRSP-meltdown rules verified against current sources (see References). All dollar figures and rates are *dated defaults to re-verify yearly*, not permanent constants.
 
@@ -253,7 +253,7 @@ The engine is built and tested **before** UI.
 
 ---
 
-## 14. Build phases (sequenced for Claude Code)
+## 14. Build phases
 
 - **Phase 0 — Pension engine + tests.** `/lib/pension` + CPP/OAS, golden tests green. No UI.
 - **Phase 1 — Projection loop + accounts + tax (single, Ontario, single person).** The year-by-year engine with RRIF/TFSA/non-reg and the tax module. Tests against worked examples. Minimal UI to drive it.
@@ -266,13 +266,12 @@ Each phase ends runnable on localhost.
 
 ---
 
-## 15. How Claude Code should work
+## 15. Build conventions
 
-- **Use skills proactively.** Read `frontend-design` before UI; scan available skills for anything that speeds the work and treat skill discovery as a default step, not an afterthought.
-- **Maintain `CLAUDE.md`** at repo root: stack, condensed §4–§8 domain rules, working model (commit-direct, no PRs), conventions, pointer to this plan. Keep it current.
+- **Maintain the project working notes** at repo root: stack, condensed §4–§8 domain rules, working model (commit-direct, no PRs), conventions, pointer to this plan. Keep it current.
 - **Test-first for the engine.** No UI before the relevant engine tests pass.
 - **Commit directly to the working branch.** No PRs/feature branches unless Liam asks.
-- **No AI authorship attribution anywhere** — commits, comments, README, docs.
+- **No authorship attribution noise anywhere** — commits, comments, README, docs.
 - **Localhost-first, incremental.** Small runnable steps.
 - **Constants in dated, province-keyed config** — never inline magic numbers for rates/brackets/thresholds.
 
