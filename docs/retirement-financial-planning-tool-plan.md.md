@@ -16,7 +16,11 @@ Why now: many public servants are actively weighing early retirement, and the of
 - RRSP/RRIF, TFSA, and non-registered accounts projected over time
 - Annual tax (federal + provincial), credits, pension income splitting, OAS clawback
 - Tax-reduction strategies, including the **RRSP meltdown**
-- A clear financial summary and side-by-side scenario comparison
+- **Probabilistic projection** — Monte Carlo simulation and stress testing for plan robustness, not a single deterministic line
+- **Optimization** — withdrawal sequencing, CPP/OAS timing, and meltdown pace solved for a chosen objective
+- A clear financial summary, an **estate projection**, and side-by-side **what-if** scenario comparison
+
+**Modelled on professional planning software.** Conquest Planning and Optiml are the reference bar: tax-aware decumulation optimization, Monte Carlo probability-of-success, stress tests, and goal-based what-if. The difference here is that it's free, federal-public-service-specialized (PSPP done *exactly* right), and fully client-side (no PII leaves the browser).
 
 It's a good-will tool for public servants and a portfolio piece showing Liam can ship a genuinely sophisticated, useful product.
 
@@ -33,7 +37,7 @@ It's a good-will tool for public servants and a portfolio piece showing Liam can
 
 ## 3. The heart of the tool: a year-by-year projection engine
 
-Everything hangs off one core: a **deterministic annual simulation** from retirement to an assumed end age (default ~95). For each year it computes:
+Everything hangs off one core: **one run** is a single annual simulation from retirement to an end age, walking year-by-year along a **return/inflation path** (a per-year sequence, not a flat scalar — this is what makes sequence-of-returns risk, stress scenarios, and Monte Carlo possible). For each year it computes:
 
 1. **Income sources:** pension (lifetime + bridge to 65), CPP, OAS, RRIF mandatory + discretionary withdrawals, TFSA withdrawals, non-registered income.
 2. **Account balances:** RRSP/RRIF, TFSA, non-registered — each grown by an assumed return, reduced by withdrawals, increased by contributions/redirected funds.
@@ -41,6 +45,14 @@ Everything hangs off one core: a **deterministic annual simulation** from retire
 4. **Net worth** across all accounts.
 
 A **strategy** (meltdown pace, CPP/OAS start ages, withdrawal order) drives the discretionary decisions each year. The pension/CPP/OAS/tax modules are pure functions feeding this loop. Build the loop clean and everything else plugs in.
+
+**The analysis layer composes runs.** One projection over one path is the primitive. Everything sophisticated is built by running it many times with different paths:
+- **Deterministic / what-if:** one path from flat return + inflation assumptions.
+- **Stress test:** one path from a named adverse generator (early crash, low-return decade, high inflation, longevity shock).
+- **Monte Carlo:** N paths (default ~1,000) sampled from a return distribution, aggregated into a probability of success and percentile bands.
+- **Optimizer:** many runs over a search of strategy knobs, scored against an objective.
+
+So build the per-run projection to be **fast and allocation-light** and to accept its path as input — never to read flat assumptions internally. Heavy multi-run work (Monte Carlo, optimization) runs in a **Web Worker** off the UI thread, driven by a **seedable RNG** so any run is reproducible and URL-shareable.
 
 ---
 
@@ -158,11 +170,40 @@ Tax constants are the most volatile inputs in the tool — keep them in clearly 
 
 **Output:** show the meltdown plan vs the do-nothing default — lifetime tax, OAS retained, RRIF-minimum trajectory, net worth, and estate value at end age.
 
-### CPP/OAS timing
-Compare start-age choices on lifetime income, break-even age, and how they interact with the meltdown window.
+### CPP/OAS timing & optimizer
+Compare start-age choices on lifetime income, break-even age, and how they interact with the meltdown window — then **optimize** them. The search space is tiny (CPP 60–70, OAS 65–70 — ~66 yearly combinations, ~726 if monthly), so the optimizer **exhaustively enumerates** every start-age pair, runs the projection for each, and returns the best per objective. Surface the break-even ages and the clawback interaction alongside the winner. Delaying both widens the low-income meltdown window — the optimizer must see CPP/OAS timing and meltdown pace *together*, not in isolation.
 
-### Withdrawal sequencing
-Which account to draw from each year (non-reg → RRSP/RRIF → TFSA, or a tax-optimized mix) to fund a target spending level.
+### Withdrawal sequencing & optimizer
+Two tiers, both valuable:
+- **Rule-based strategies (explainable, fast):** preset orders — non-reg → RRSP/RRIF → TFSA, or a tax-smart mix — to fund a target after-tax spend each year. The fill-the-bracket meltdown is one of these.
+- **Optimizer (searches for "best"):** parameterize a strategy by a small knob set — meltdown pace / bracket-fill target, withdrawal order, RRIF-conversion age, CPP/OAS start ages — and search that space (coordinate descent / simple evolutionary search; **not** brute force over per-year dollar amounts, which is intractable). Score each candidate by running the projection (deterministic median, or Monte Carlo probability-of-success) against the chosen objective. This is Optiml's core value proposition; it's the headline "optimizer" feature.
+
+Always show the optimizer's chosen plan **against the do-nothing default and the user's own plan**, with the assumptions it depends on stated plainly — an "optimal" number is only as good as its inputs.
+
+### What-if scenarios
+First-class, clonable `Scenario` objects (see §12). Clone a plan, change one lever (retire 2 yrs later, CPP at 70, returns 5% vs 6%), and recompute live; overlay 2–4 scenarios on every chart with a metrics **diff table**. This is the interactive comparison surface the optimizer and stress tools feed into.
+
+### Monte Carlo analysis
+Replace the single deterministic line with a **distribution of outcomes** by running the projection over many sampled return paths.
+- **Return model (phased):** start parametric — sample annual returns from a normal/lognormal with a configurable mean μ and volatility σ for the chosen asset mix. Later: per-asset-class returns with correlation, and/or **historical block bootstrap** (preserves fat tails and sequence autocorrelation).
+- **Inflation:** fixed first; stochastic (sampled) later. **Longevity:** fixed end age first; later sample age-of-death from a mortality table (and, in couple mode, model first/second death).
+- **Runs:** default ~1,000 (configurable), via a **seedable RNG** so a scenario+seed reproduces exactly and shares by URL; runs in a **Web Worker**.
+- **Output:** **probability of success** (% of runs where the money lasts to end age / sustains the target spend), **percentile bands** (p5/p25/p50/p75/p95) on net worth and after-tax income over time, and distributions of **estate value** and **lifetime tax**. Sequence-of-returns risk falls out naturally — early bad years hurt most in drawdown, and Monte Carlo exposes what a flat return hides.
+- **Performance target:** 1,000 runs × ~35 years × full tax calc in roughly 1–2s in-browser — the reason the per-run loop must stay lean.
+
+### Stress testing
+Named, deterministic adverse scenarios — the complement to Monte Carlo's distribution (specific "what breaks this?" cases vs. a probability cloud). A library applied to any plan:
+1. **Early market crash** (e.g., −30% in years 1–2) — sequence-of-returns risk.
+2. **Low-return decade** (e.g., ~2% real, sustained).
+3. **High-inflation regime** (spending and indexing diverge).
+4. **Longevity shock** (live to 100+).
+5. **Large one-time expense** (long-term care, major home repair).
+6. **Early death of a spouse** (couple mode — loss of one OAS, survivor-pension reduction, single-rate tax).
+7. **Reduced government benefits.**
+Output per scenario: does the plan survive, and if not, the **shortfall age** and gap. Each is just a path generator handed to the same projection.
+
+### Estate projector
+A first-class output, not a footnote — it's half the reason the meltdown exists. Project net worth to death and apply **terminal tax**: the full RRSP/RRIF balance is a deemed disposition taxed (often at the top marginal rate) unless it rolls to a surviving spouse; non-registered accrued gains realize; the TFSA passes tax-free. **After-tax estate value** is the headline metric. In couple mode, model **first death** (spousal rollover, tax-deferred) then **second death** (full deemed disposition) — the meltdown's estate case lives or dies on this. Show how each strategy moves the after-tax estate.
 
 ---
 
@@ -172,7 +213,11 @@ Which account to draw from each year (non-reg → RRSP/RRIF → TFSA, or a tax-o
 - **Net-worth / account-balance chart** over time.
 - **Tax & OAS chart:** annual tax paid and OAS clawed back.
 - **Summary metrics:** income at 60/65/70, total lifetime after-tax income, total lifetime tax, OAS retained vs clawed back, estate value at end age, sustainability (does money last to end age?).
-- **Scenario comparison:** 2–4 full strategies overlaid on every chart + a metrics table.
+- **Monte Carlo view:** a **fan chart** (percentile bands p5–p95) of net worth / income over time and a prominent **probability of success**, replacing the false certainty of a single line.
+- **Stress-test panel:** the named adverse scenarios with pass/fail and shortfall age each.
+- **Estate projection:** after-tax estate value at death (with the terminal-tax breakdown), and how the chosen strategy moves it.
+- **Optimizer result:** the solved plan vs the do-nothing default vs the user's plan, with the objective and assumptions stated.
+- **Scenario comparison (what-if):** 2–4 full strategies overlaid on every chart + a metrics **diff table**.
 
 ---
 
@@ -186,7 +231,8 @@ Given an objective, search over the levers (retirement date, CPP start, OAS star
 
 - **Next.js + TypeScript on Vercel.** Matches Liam's stack and the portfolio.
 - **Pure client-side computation. No backend, no DB, no accounts in v1.** Everything runs in the browser; salary/savings data never leaves the device. Even with the full tax/strategy engine this is feasible (it's all deterministic math) and it's the single best privacy decision — and a statable trust feature.
-- **Engine = isolated, dependency-free TypeScript** under `/lib`: `pension`, `cpp`, `oas`, `accounts` (RRIF/TFSA/non-reg), `tax` (province-keyed), `strategy` (meltdown, sequencing, timing), `projection` (the year loop), `optimize`. Pure functions, fully unit-testable, no React/IO.
+- **Engine = isolated, dependency-free TypeScript** under `/lib`: `pension`, `cpp`, `oas`, `accounts` (RRIF/TFSA/non-reg), `tax` (province-keyed), `strategy` (meltdown, sequencing, timing), `projection` (**one run over one path** — the year loop), `paths` (path generators: flat / stress / sampled), `montecarlo` (N-run aggregation: probability of success, percentile bands), `stress` (named adverse-scenario library), `estate` (terminal-tax / after-tax estate value), `optimize` (objective solvers — CPP/OAS exact + withdrawal/strategy search), and `rng` (seedable PRNG + distribution samplers). Pure functions, fully unit-testable, no React/IO.
+- **Heavy analysis off the main thread:** Monte Carlo and the optimizer run in a **Web Worker** so the UI stays responsive; the seedable `rng` keeps every run reproducible and URL-shareable.
 - **State:** React + URL-encoded scenarios for share/restore. No localStorage/sessionStorage if any part is ever embedded in an Artifact preview; as a standalone Vercel app, normal storage is fine for later save features.
 - **Charts:** Recharts or similar.
 - **Design:** read and follow the `frontend-design` skill before UI work. Portfolio piece — deliberate visual identity grounded in the subject (trustworthy, considered Canadian public-service financial planning), intentional type pairing, one signature element (the multi-scenario income chart) carrying the page; everything else quiet. Quality floor: responsive, visible focus, reduced-motion respected.
@@ -230,13 +276,42 @@ interface YearRow {
   balances: { rrsp: number; tfsa: number; nonReg: number };
   netWorth: number;
 }
-interface ScenarioResult {
+interface ScenarioResult {        // result of ONE run over ONE path
   strategy: Strategy;
   reductionPct: number;
   rows: YearRow[];
   totals: { lifetimeAfterTax: number; lifetimeTax: number; oasRetained: number; estateValue: number; lastsToEndAge: boolean };
   cppBreakEvenAge?: number; oasBreakEvenAge?: number;
 }
+
+// ---- Analysis layer ----
+interface YearPath {                 // one year of market/economic conditions
+  returnPct: number; inflationPct: number; indexingPct: number;
+}
+type ReturnPath = YearPath[];        // one full path = one run's conditions
+
+interface SimulationConfig {
+  mode: 'deterministic' | 'montecarlo' | 'stress';
+  runs?: number;                     // montecarlo, default ~1000
+  seed?: number;                     // reproducible / URL-shareable
+  distribution?: { meanPct: number; volPct: number };  // parametric MC
+  stressScenarioId?: string;
+}
+interface MonteCarloResult {
+  probabilityOfSuccess: number;      // % of runs that last to end age / sustain spend
+  netWorth: { age: number; p5: number; p25: number; p50: number; p75: number; p95: number }[];
+  afterTax: { age: number; p5: number; p25: number; p50: number; p75: number; p95: number }[];
+  estateValue: { p5: number; p50: number; p95: number; mean: number };
+  lifetimeTax:  { p5: number; p50: number; p95: number; mean: number };
+}
+interface StressScenario { id: string; label: string; describe: string; makePath(base: ReturnPath): ReturnPath; }
+interface StressResult { scenarioId: string; survives: boolean; shortfallAge?: number; result: ScenarioResult; }
+
+type Objective =
+  | 'maxLifetimeAfterTax' | 'maxEstateValue' | 'minLifetimeTax'
+  | 'maxOasRetained' | 'maxSustainableSpend' | 'smoothestIncome';
+interface OptimizerRequest { objective: Objective; lockedLevers?: Partial<Strategy>; }
+interface OptimizerResult { bestStrategy: Strategy; objectiveValue: number; result: ScenarioResult; }
 ```
 
 ---
@@ -256,11 +331,12 @@ The engine is built and tested **before** UI.
 ## 14. Build phases (sequenced for Claude Code)
 
 - **Phase 0 — Pension engine + tests.** `/lib/pension` + CPP/OAS, golden tests green. No UI.
-- **Phase 1 — Projection loop + accounts + tax (single, Ontario, single person).** The year-by-year engine with RRIF/TFSA/non-reg and the tax module. Tests against worked examples. Minimal UI to drive it.
-- **Phase 2 — Financial summary UI + scenario comparison.** Charts (income/net worth/tax), metrics, 2–4 overlaid scenarios. Localhost-first.
-- **Phase 3 — Strategy modules.** RRSP meltdown (with OAS guard + TFSA pipeline), withdrawal sequencing, CPP/OAS timing comparison.
-- **Phase 4 — Optimize mode** (after Dad answers §17) + couple mode / pension splitting.
-- **Phase 5 — Polish + deploy.** `frontend-design` pass, disclaimers, mobile, a11y, multi-province tax, Vercel deploy, add to portfolio.
+- **Phase 1 — Path-based projection loop + accounts + tax (single, Ontario).** The year-by-year engine over a `ReturnPath` (build it path-based from day one so Monte Carlo and stress plug in without a refactor), with RRIF/TFSA/non-reg and the tax module. Tests against worked examples. Minimal UI to drive it.
+- **Phase 2 — Financial summary UI + what-if comparison.** Charts (income/net worth/tax), metrics, 2–4 overlaid scenarios + diff table. Localhost-first.
+- **Phase 3 — Strategy modules + estate projector.** RRSP meltdown (OAS guard + TFSA pipeline), withdrawal sequencing, CPP/OAS timing comparison, and the after-tax estate projection (terminal tax).
+- **Phase 4 — Probabilistic analysis.** Monte Carlo (probability of success + percentile fan charts) and the stress-test library, running in a Web Worker on a seedable RNG.
+- **Phase 5 — Optimizers + couple mode** (after Dad answers §17). CPP/OAS optimizer (exact enumeration), withdrawal/strategy optimizer (knob search) with selectable objectives, plus couple mode / pension splitting.
+- **Phase 6 — Polish + deploy.** `frontend-design` pass, disclaimers, mobile, a11y, multi-province tax, Vercel deploy, add to portfolio.
 
 Each phase ends runnable on localhost.
 
@@ -292,7 +368,7 @@ Each phase ends runnable on localhost.
 2. v1 = single person, Ontario, gross-then-tax; couple mode / pension splitting / multi-province come later — OK?
 3. The §10 optimization objectives.
 4. Default assumptions: return rate, inflation, indexing, end age.
-5. How much investment-projection sophistication (straight-line vs Monte Carlo) is wanted, and when.
+5. ~~How much investment-projection sophistication (straight-line vs Monte Carlo) is wanted, and when.~~ **Resolved (Liam, June 2026): full Monte Carlo + stress testing are in scope, modelled on Conquest/Optiml.** Open sub-questions: parametric vs historical-bootstrap returns to start with; stochastic vs fixed longevity; default μ/σ and run count.
 6. Whether estate value / terminal tax is a headline metric (it matters a lot for the meltdown story).
 7. Public-service-specific items to scope (not yet deep-researched — flag for a later research pass): **severance / retirement allowance / unused vacation payout** as lump-sum income events at retirement; **PSHCP retiree health/dental** premium costs in retirement; the **PSPP survivor pension** (and supplementary death benefit) for couple/estate modelling. Confirm which of these Dad wants in scope and when.
 
