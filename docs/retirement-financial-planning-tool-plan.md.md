@@ -1,8 +1,8 @@
-# Retirement Financial Planning Tool — Project & Build Plan (v2, expanded scope)
+# Retirement Financial Planning Tool — Project & Build Plan (v3, household + stochastic scope)
 
 **Working title:** Federal Retirement Planner (Liam + Dad to name it)
 **Status:** Planning. Source of truth for the build. Free to change — no PRs, no gates. If a better approach appears mid-build, update this doc and keep moving.
-**Supersedes:** v1 (pension-only early-retirement calculator). Scope is now a complete retirement financial-planning tool.
+**Supersedes:** v2 (single-person deterministic planner). Scope now adds **household (two-member) modelling, public-service workforce-adjustment events (WFA/VDP/ERI), spousal-mortality / survivor modelling, all-13-province tax, Monte Carlo simulation with per-account volatility, a tax-optimized decumulation heuristic, and a Conquest-style confidence-score dashboard** — Dad's expanded requirements, detailed in §18–§21.
 **Last researched:** June 16, 2026 — pension, CPP/OAS, RRIF, tax, and RRSP-meltdown rules verified against current sources (see References). All dollar figures and rates are *dated defaults to re-verify yearly*, not permanent constants.
 
 ---
@@ -195,47 +195,74 @@ Given an objective, search over the levers (retirement date, CPP start, OAS star
 
 ## 12. Data model (starting types)
 
+The v3 model is a **two-member household** with **owner-tagged accounts** and a **scenario-toggle**
+config. Single mode is just a household with `memberB` omitted. See §18 for the public-service
+event semantics and §19–§20 for the engine consuming these. These shapes back the canonical
+`/types/planner.ts` file Dad's spec calls for.
+
 ```ts
 type Group = 1 | 2;
-type Province = 'ON' | 'QC' | 'BC' | /* ... */ string;
+type Province = 'ON'|'QC'|'BC'|'AB'|'MB'|'SK'|'NB'|'NS'|'PE'|'NL'|'YT'|'NT'|'NU';
+type Owner = 'memberA' | 'memberB' | 'joint';
+type AccountType = 'rrsp' | 'tfsa' | 'nonReg';
 
 interface Household {
-  province: Province;
-  primary: Person;
-  spouse?: Person;            // enables splitting / couple mode (later)
+  province: Province;          // drives the cross-provincial tax matrix (§7)
+  memberA: Member;
+  memberB?: Member;            // omit for single mode; enables splitting + survivor logic
+  accounts: Account[];         // owner-tagged, unlimited count (UI adds/removes)
 }
-interface Person {
+interface Member {
+  label?: string;             // display name
   birthDate: string;
-  planJoinDate: string;       // -> group
+  planJoinDate: string;       // -> group (override-able, §4 re-employment edge)
   group?: Group;
+  currentSalary: number;
   bestFiveAvgSalary: number;
   pensionableServiceYears: number;
-  estimatedCppAt65Monthly: number;
+  targetRetirementAge: number;
+  estimatedCppAt65Monthly: number;  // input from Service Canada (§5)
   oasEligible: boolean;
-  accounts: { rrsp: number; tfsa: number; nonReg: number };
 }
-interface Strategy {
-  retirementDate: string;
-  cppStartAge: number;        // 60..70
-  oasStartAge: number;        // 65..70
+interface Account {
+  id: string;
+  owner: Owner;
+  type: AccountType;
+  currentBalance: number;
+  riskProfile: { expectedReturn: number; volatility: number }; // % return, % stdev (for Monte Carlo §20)
+}
+
+// Scenario toggles — the levers Dad's "Scenario Lab" exposes (§18, §21).
+interface Scenario {
+  cppStartAge: { memberA: number; memberB?: number };   // 60..70
+  oasStartAge: { memberA: number; memberB?: number };   // 65..70
   meltdown: { mode: 'none'|'conservative'|'moderate'|'aggressive'|'custom'; startAge?: number };
-  withdrawalOrder?: ('nonReg'|'rrsp'|'tfsa')[];
-  assumptions: { returnPct: number; inflationPct: number; indexingPct: number; endAge: number };
+  withdrawalOrder?: AccountType[];                       // default decumulation heuristic in §20
+  assumptions: { inflationPct: number; indexingPct: number; endAge: number; mode: 'deterministic'|'monteCarlo'; runs?: number };
+  events: {
+    wfaPackage?: { member: 'memberA'|'memberB'; tsmPayoutWeeks: number; departureAge: number };  // WFA/VDP + Transition Support Measure cash
+    eriWaiver?: { member: 'memberA'|'memberB' };          // waive the early-retirement reduction (§18)
+    secondCareerIncome?: { member: 'memberA'|'memberB'; annualAmount: number; startAge: number; endAge: number };
+    earlyMortality?: { member: 'memberA'|'memberB'; atAge: number };  // triggers survivor rule (§19)
+  };
 }
 interface YearRow {
-  age: number;
+  year: number; ageA: number; ageB?: number;
   pension: number; bridge: number; cpp: number; oas: number;
+  secondCareer: number; lumpSum: number;            // second-career + WFA/TSM cash events
   rrifMin: number; rrifExtra: number; tfsaWd: number; nonRegInc: number;
   taxableIncome: number; tax: number; oasClawback: number; afterTax: number;
-  balances: { rrsp: number; tfsa: number; nonReg: number };
+  filingStatus: 'couple'|'single';                  // flips on survivor transition (§19)
+  balances: Record<AccountType, number>;
   netWorth: number;
 }
 interface ScenarioResult {
-  strategy: Strategy;
-  reductionPct: number;
-  rows: YearRow[];
+  scenario: Scenario;
+  reductionPct: { memberA: number; memberB?: number };
+  rows: YearRow[];                                   // deterministic, or the median path under Monte Carlo
   totals: { lifetimeAfterTax: number; lifetimeTax: number; oasRetained: number; estateValue: number; lastsToEndAge: boolean };
   cppBreakEvenAge?: number; oasBreakEvenAge?: number;
+  monteCarlo?: { runs: number; successProbability: number; medianNetWorthByYear: number[]; p10ByYear: number[]; p90ByYear: number[] };
 }
 ```
 
@@ -255,14 +282,18 @@ The engine is built and tested **before** UI.
 
 ## 14. Build phases
 
-- **Phase 0 — Pension engine + tests.** `/lib/pension` + CPP/OAS, golden tests green. No UI.
+- **Phase 0 — Pension engine + tests.** `/lib/pension` + CPP/OAS, golden tests green. No UI. ✅
 - **Phase 1 — Projection loop + accounts + tax (single, Ontario, single person).** The year-by-year engine with RRIF/TFSA/non-reg and the tax module. Tests against worked examples. Minimal UI to drive it.
 - **Phase 2 — Financial summary UI + scenario comparison.** Charts (income/net worth/tax), metrics, 2–4 overlaid scenarios. Localhost-first.
-- **Phase 3 — Strategy modules.** RRSP meltdown (with OAS guard + TFSA pipeline), withdrawal sequencing, CPP/OAS timing comparison.
-- **Phase 4 — Optimize mode** (after Dad answers §17) + couple mode / pension splitting.
-- **Phase 5 — Polish + deploy.** `frontend-design` pass, disclaimers, mobile, a11y, multi-province tax, Vercel deploy, add to portfolio.
+- **Phase 3 — Strategy modules + decumulation heuristic.** RRSP meltdown (OAS guard + TFSA pipeline), the §20 tax-optimized withdrawal order (non-reg → RRSP meltdown → TFSA last), CPP/OAS timing comparison.
+- **Phase 4 — Household / couple mode.** Member A/B model, automated pension income splitting (§7), the **survivor / early-mortality rule** (§19), and the **public-service workforce events** WFA/VDP/TSM + ERI waiver (§18).
+- **Phase 5 — Cross-provincial tax matrix (§7).** All 13 federal + provincial/territorial bracket sets, dated and province-keyed; province selector wired through the engine.
+- **Phase 6 — Monte Carlo (§20).** Per-account stochastic returns over N runs (default 5,000), Plan Success Probability, median + p10/p90 net-worth bands. Deterministic mode stays the default/fast path.
+- **Phase 7 — Conquest-style dashboard (§21).** Confidence-score dial, scenario-lab toggles, stacked cash-flow area chart to age 95. Read the `frontend-design` skill first.
+- **Phase 8 — Optimize mode** (after Dad answers §17) — search the levers for a chosen objective.
+- **Phase 9 — Polish + deploy.** `frontend-design` pass, disclaimers, mobile, a11y, Vercel deploy, add to portfolio.
 
-Each phase ends runnable on localhost.
+Each phase ends runnable on localhost. Phases 4–6 are engine-first (tests before UI); the dashboard (§21) consumes whatever the engine already exposes.
 
 ---
 
@@ -294,6 +325,118 @@ Each phase ends runnable on localhost.
 5. How much investment-projection sophistication (straight-line vs Monte Carlo) is wanted, and when.
 6. Whether estate value / terminal tax is a headline metric (it matters a lot for the meltdown story).
 7. Public-service-specific items to scope (not yet deep-researched — flag for a later research pass): **severance / retirement allowance / unused vacation payout** as lump-sum income events at retirement; **PSHCP retiree health/dental** premium costs in retirement; the **PSPP survivor pension** (and supplementary death benefit) for couple/estate modelling. Confirm which of these Dad wants in scope and when.
+8. **WFA/VDP terms (§18) need verification** against the current Work Force Adjustment directive and any active departure program before the numbers ship — the TSM weeks-of-pay schedule and the ERI-waiver eligibility conditions are collective-agreement/directive-driven and change. Treat §18 figures as placeholders until confirmed.
+9. **Monte Carlo defaults (§20):** 5,000 runs, return/volatility per account, and whether to follow FP Canada Projection Assumption Guideline ranges for default expected returns/stdev. Confirm the default risk profiles and whether returns are correlated across accounts (v1: independent draws).
+
+---
+
+## 18. Domain spec E — Public-service workforce events (Dad's requirement)
+
+Real levers a federal public servant weighing **early/incentivized departure** turns on. These are
+**federal-only** (Work Force Adjustment directive + PSSA); do not import provincial-plan severance rules.
+⚠️ The specific figures here are directive/collective-agreement-driven — **verify before shipping (§17.8)**.
+
+- **WFA (Work Force Adjustment) / VDP (Voluntary Departure Program):** when a position is declared
+  surplus (or a department opens voluntary departures), an opted member can receive a **Transition
+  Support Measure (TSM)** — a cash payout scaled by **years of service (weeks of pay)**. Model as a
+  one-time, taxable **lump-sum income event** in the departure year (`events.wfaPackage`, with
+  `tsmPayoutWeeks` and `departureAge`). It lands in that year's taxable income (big bracket/​OAS-clawback
+  implications — exactly the kind of spike the meltdown/decumulation logic must see).
+- **ERI (Early Retirement Incentive) / pension penalty waiver:** under a WFA situation a surplus member
+  may be entitled to an **unreduced pension** — i.e., the §4 early-retirement reduction is **waived**.
+  When `events.eriWaiver` is set for a member, the pension engine sets that member's `reductionPct = 0`
+  even though their age/service would otherwise trigger a reduction. This is the single highest-value
+  toggle for an early departure and must visibly change the lifetime numbers.
+- **Second-career / consulting income:** post-departure employment income for a bounded window
+  (`events.secondCareerIncome`: `annualAmount`, `startAge`, `endAge`). Adds to taxable income in those
+  years; interacts with OAS clawback and the meltdown window (often a reason to *delay* the meltdown).
+  Note the §1 re-employment rule: returning to a *contributory* public-service position suspends the
+  pension — second-career income here is assumed to be **outside** the plan (consulting/private), so the
+  pension keeps paying. Surface that assumption.
+
+These are **scenario toggles** (§12 `Scenario.events`), comparable side-by-side like any other strategy.
+
+---
+
+## 19. Domain spec F — Spousal mortality & the survivor rule (Dad's requirement)
+
+A stress-test toggle (`events.earlyMortality`: `{ member, atAge }`) and a core couple-mode mechanic. When
+a member dies in projection year *Y*, from *Y* onward the engine must:
+
+1. **Cut the deceased's pension to the survivor allowance.** ≈ **50% of the member's *unreduced* lifetime
+   pension** — computed **without** the early-retirement reduction and **without** the CPP-coordination
+   reduction (per edge-cases §2: `1% × service(≤35) × best-5 ÷ 12` monthly). The survivor allowance does
+   **not** carry the deceased's bridge; recompute the surviving household's pre/post-65 bridge on the
+   *survivor's own* pension only.
+2. **Stop the deceased's bridge** (it was theirs, ends at their death/65 regardless).
+3. **Handle account rollovers:** RRSP/RRIF/LIF roll **tax-deferred** to the surviving spouse (no terminal
+   tax this year); TFSA passes to a successor holder tax-free. With **no surviving spouse**, the full
+   registered balance is deemed disposed on the final return (terminal tax — the estate metric the
+   meltdown targets).
+4. **Flip filing status couple → single.** From *Y*+1 the tax engine files the survivor as a **single**
+   filer: no pension income splitting, single basic personal amount, single age amount, and the OAS
+   clawback runs on one income. This transition usually *raises* the effective rate on the same income —
+   a key thing the stress test reveals.
+
+CPP has its own survivor mechanics (combined-benefit max, edge-cases §3) — model simply at first
+(apply a survivor fraction to the CPP input), flag the combined-max cap as a refinement.
+
+---
+
+## 20. Engine spec — Monte Carlo & tax-optimized decumulation (Dad's requirement)
+
+Two upgrades layered on the deterministic core (`/lib/projection`). Deterministic mode stays the default,
+fast path; Monte Carlo is opt-in (`Scenario.assumptions.mode === 'monteCarlo'`).
+
+### Per-account Monte Carlo (`/lib/montecarlo`)
+- Wrap the year loop and run it **N times** (default **5,000**, configurable).
+- Each simulated year, replace each account's flat growth with a **random draw from a normal
+  distribution** parameterized by that account's `riskProfile` (`expectedReturn` mean, `volatility`
+  stdev) — so a 100%-equity TFSA swings more than a bond-heavy RRSP. Align default return/volatility
+  with **FP Canada Projection Assumption Guidelines** (dated config; re-verify yearly).
+- v1: draws are **independent per account per year** (flag cross-account correlation as a refinement).
+- Determinism for tests: a **seedable RNG** so runs are reproducible under a fixed seed.
+- **Outputs:** **Plan Success Probability** = % of the N runs where total portfolio **never hit $0
+  before the end age (95)**; plus the **median** lifetime net-asset trajectory and **p10/p90 bands**
+  (`ScenarioResult.monteCarlo`). The median path is what charts render; the probability feeds the dial (§21).
+
+### Tax-optimized decumulation heuristic (`/lib/strategy`)
+To fund a target spend / bridge an early income gap (e.g. a VDP departure before CPP/OAS), draw in this
+default order, overridable via `Scenario.withdrawalOrder`:
+1. **Non-registered first** — only the realized **capital gain** is taxable (50% inclusion), so it's the
+   cheapest cash to raise early.
+2. **RRSP/RRIF meltdown next** — deliberately draw down registered funds in the low-income window, filling
+   the current bracket to the top **without overshooting** and respecting the **OAS-clawback guard**
+   (§8), to defuse the forced-RRIF-minimum **tax spike** in the 70s and shrink terminal tax.
+3. **TFSA last** — protect it to compound tax-free; its withdrawals never count toward net income
+   (no clawback), so it's the most valuable dollar to keep invested longest.
+
+This heuristic and the meltdown module (§8) are the same machinery — the order above is the explicit
+default the engine applies each year when discretionary cash is needed.
+
+---
+
+## 21. UI spec — Conquest-style confidence dashboard (Dad's requirement)
+
+The headline screen (`/components/Dashboard.tsx`). Stack: **Tailwind CSS + shadcn/ui + Recharts**.
+Read the `frontend-design` skill before building. Localhost-first; consumes only what the engine exposes.
+
+- **Left input sidebar:**
+  - Sliders for **salary** and **years of pensionable service**; target-retirement-age control — per member.
+  - A **card matrix** to add/remove **unlimited** accounts (RRSP / TFSA / Non-Reg), each with an owner
+    (Member A / B / Joint) and a **risk-profile dropdown** (sets `expectedReturn` + `volatility`).
+  - An advanced **"Scenario Lab"** with clear toggle switches: **Accept VDP/WFA Package** (TSM weeks +
+    departure age), **Trigger ERI** (penalty waiver), **Add Second-Career Consulting Income** (amount +
+    age window), and a **"Simulate Spouse Early Mortality"** stress-test slider (age of death) → drives §19.
+- **Right analytics panel** (clean, professional, Conquest-Planning-style):
+  - A large, bold **Confidence Score dial** showing the Monte Carlo **Plan Success Probability** (§20).
+  - Below it, a **stacked area chart** of lifetime **cash-flow sources year-by-year to age 95** —
+    Pension base + **Bridge Benefit** + CPP/OAS + investment drawdowns (+ second-career / lump-sum
+    events) — so the bridge step-down at 65 and the effect of each career choice on income and tax
+    exposure are immediately visible. This is the **signature element** (§11) the page is built around.
+  - Persistent disclaimer + "rules current as of \<date\>" (§16).
+- Quality floor (§11): responsive, visible focus, reduced-motion respected. Recompute is debounced;
+  Monte Carlo runs off the main thread (Web Worker) so the UI stays responsive at 5,000 runs.
 
 ---
 
