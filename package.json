@@ -1,0 +1,27 @@
+{
+  "name": "federal-retirement-planner",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Year-by-year retirement financial planner for Canadian federal public servants. Client-side only.",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "next": "15.3.1",
+    "react": "19.1.0",
+    "react-dom": "19.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "20.14.10",
+    "@types/react": "19.1.2",
+    "@types/react-dom": "19.1.2",
+    "typescript": "5.5.3",
+    "vitest": "2.1.8"
+  }
+}
