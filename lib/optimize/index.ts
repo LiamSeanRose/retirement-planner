@@ -127,10 +127,10 @@ const WITHDRAWAL_ORDERS: AccountType[][] = [
 ];
 
 /**
- * Meltdown paces searched. NOTE: the current projection does not yet consume `scenario.meltdown`
- * (only `withdrawalOrder` moves outputs), so varying this is presently inert — kept here so the
- * search picks it up automatically once the engine wires the meltdown in. RRIF-conversion timing is
- * deliberately NOT searched: the engine fixes conversion at 71 with no scenario lever to vary it.
+ * Meltdown paces searched. The projection now consumes `scenario.meltdown` (member-A bracket-fill →
+ * TFSA pipeline, pace = aggressiveness), so varying this genuinely moves outputs and the search is
+ * live. RRIF-conversion timing is deliberately NOT searched: the engine fixes conversion at 71 with
+ * no scenario lever to vary it.
  */
 const MELTDOWN_MODES: Scenario['meltdown']['mode'][] = ['none', 'conservative', 'moderate', 'aggressive'];
 
@@ -282,9 +282,9 @@ const MAX_PLAN_SWEEPS = 5;
  * scoring and the assumptions it is conditional on. The search seeds from the better of {user plan,
  * do-nothing}, so the winner is guaranteed ≥ both.
  *
- * NOTE: meltdown pace is searched for forward compatibility — the projection does not yet consume
- * `scenario.meltdown`, so varying it is currently inert; RRIF-conversion age has no scenario lever at
- * all (the engine fixes 71), so it is not searched.
+ * NOTE: meltdown pace is searched and live — the projection now consumes `scenario.meltdown` (the
+ * member-A bracket-fill → TFSA pipeline). RRIF-conversion age has no scenario lever at all (the engine
+ * fixes 71), so it is not searched.
  */
 export function optimizePlan(
   household: Household,

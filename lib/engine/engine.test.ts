@@ -135,6 +135,61 @@ describe('principal residence (home) + downsizing', () => {
   });
 });
 
+describe('RRSP meltdown (wired into the projection)', () => {
+  // A big-RRSP, modest-income single — lots of low-bracket room to melt into.
+  const meltHousehold: Household = {
+    province: 'ON',
+    memberA: { birthDate: '1969-01-01', planJoinDate: '2005-06-01', currentSalary: 80_000, bestFiveAvgSalary: 80_000, pensionableServiceYears: 25, targetRetirementAge: 60, estimatedCppAt65Monthly: 1_000, oasEligible: true },
+    accounts: [
+      { id: 'r', owner: 'memberA', type: 'rrsp', currentBalance: 700_000, riskProfile: { expectedReturn: 5, volatility: 10 } },
+      { id: 't', owner: 'memberA', type: 'tfsa', currentBalance: 50_000, riskProfile: { expectedReturn: 5, volatility: 10 } },
+    ],
+  };
+  const melt = (mode: Scenario['meltdown']['mode']): Scenario => ({
+    ...scenario,
+    meltdown: { mode },
+    assumptions: { ...scenario.assumptions, targetAnnualSpending: 45_000, endAge: 90 },
+  });
+  const none = runScenario(meltHousehold, melt('none'));
+  const moderate = runScenario(meltHousehold, melt('moderate'));
+  const aggressive = runScenario(meltHousehold, melt('aggressive'));
+  const conservative = runScenario(meltHousehold, melt('conservative'));
+  const finalRrsp = (r: typeof none) => r.rows.at(-1)!.balances.rrsp;
+  const finalTfsa = (r: typeof none) => r.rows.at(-1)!.balances.tfsa;
+
+  it('moves registered money into the TFSA (smaller RRSP, larger TFSA at death)', () => {
+    expect(finalRrsp(moderate)).toBeLessThan(finalRrsp(none));
+    expect(finalTfsa(moderate)).toBeGreaterThan(finalTfsa(none));
+  });
+
+  it('grows the after-tax estate vs doing nothing (the meltdown’s headline case)', () => {
+    expect(moderate.totals.estateValue).toBeGreaterThan(none.totals.estateValue);
+  });
+
+  it('paces are genuinely distinct (aggressive melts more than conservative)', () => {
+    expect(finalRrsp(aggressive)).toBeLessThanOrEqual(finalRrsp(conservative));
+    expect(finalTfsa(aggressive)).toBeGreaterThanOrEqual(finalTfsa(conservative));
+    expect(finalRrsp(aggressive)).toBeLessThan(finalRrsp(none)); // any non-none mode melts
+  });
+
+  it('keeps the books straight: lifetimeTax = Σ row tax, and net worth reconciles each year', () => {
+    const sumTax = aggressive.rows.reduce((s, r) => s + r.tax, 0);
+    expect(aggressive.totals.lifetimeTax).toBeCloseTo(sumTax, 2);
+    for (const r of aggressive.rows) {
+      expect(r.netWorth).toBeCloseTo(r.balances.rrsp + r.balances.tfsa + r.balances.nonReg + r.balances.lira + r.cashWedge, 4);
+      expect(r.balances.rrsp).toBeGreaterThanOrEqual(-1e-6);
+      expect(Number.isFinite(r.tax)).toBe(true);
+    }
+  });
+
+  it('does not reduce spendable income — the meltdown is self-funded (net to TFSA)', () => {
+    // afterTax is priced on the base (pre-meltdown) tax, so the proactive draw never starves spending.
+    const a70 = aggressive.rows.find((r) => r.ageA === 70)!;
+    const n70 = none.rows.find((r) => r.ageA === 70)!;
+    expect(a70.afterTax).toBeGreaterThanOrEqual(n70.afterTax - 1);
+  });
+});
+
 describe('cash wedge / bucket strategy', () => {
   const years = 90 - 60 + 1;
   const flatPath = (pct: number): ReturnPathByType => Array.from({ length: years }, () => ({ returnPct: pct, inflationPct: 2, indexingPct: 2 }));

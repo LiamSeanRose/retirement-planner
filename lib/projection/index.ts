@@ -32,6 +32,7 @@ import {
 } from '../accounts';
 import { householdFilingStatus, survivorAllowanceAnnual, survivorCppBenefitAnnual } from '../survivor';
 import { eriWaiverApplies, secondCareerIncomeForYear, wfaLumpSumForYear } from '../workforce';
+import { meltdownWithdrawal } from '../strategy';
 
 const pctToFraction = (pct: number): number => pct / 100;
 
@@ -448,35 +449,73 @@ export function runProjection(
     }
     const taxableIncome = pension + bridge + cpp + oas + secondCareer + lumpSum + rrifMin + rrifExtra + lifMin + nonRegTaxable;
 
-    // --- Tax: couple-mode pension splitting when both alive, otherwise a single filer ---
-    let tax: number;
-    if (filingStatus === 'couple') {
-      const profileFor = (p: MemberPlan): TaxMemberProfile => {
-        const L = linesById[p.id];
-        return {
-          age: ageById[p.id],
-          // CPP/OAS/second-career/lump + the member's share of non-reg income (none splittable).
-          ordinaryIncome: L.cpp + L.oas + L.secondCareer + L.lumpSum + shareFor(p.id, baseNonRegShares, aliveById) * nonRegTaxable,
-          psppPension: L.pension + L.bridge,
-          rrifIncome: rrifMinById[p.id] + shareFor(p.id, baseRegShares, aliveById) * rrifExtra + (p.id === 'memberA' ? lifMin : 0),
+    // --- The year's income tax, as a function of an EXTRA member-A registered withdrawal (the meltdown).
+    // Couple-mode pension splitting when both alive, otherwise a single filer. `meltExtra` (member A's
+    // proactive RRSP/RRIF meltdown draw) is folded into A's registered income so the same engine prices
+    // both the base year and the meltdown's incremental tax. ---
+    const computeYearTax = (meltExtra: number): number => {
+      const ti = taxableIncome + meltExtra;
+      if (filingStatus === 'couple') {
+        const profileFor = (p: MemberPlan): TaxMemberProfile => {
+          const L = linesById[p.id];
+          return {
+            age: ageById[p.id],
+            // CPP/OAS/second-career/lump + the member's share of non-reg income (none splittable).
+            ordinaryIncome: L.cpp + L.oas + L.secondCareer + L.lumpSum + shareFor(p.id, baseNonRegShares, aliveById) * nonRegTaxable,
+            psppPension: L.pension + L.bridge,
+            rrifIncome: rrifMinById[p.id] + shareFor(p.id, baseRegShares, aliveById) * rrifExtra + (p.id === 'memberA' ? lifMin + meltExtra : 0),
+          };
         };
-      };
-      tax = computeTax({
-        province: household.province,
-        year,
-        age: ageA,
-        taxableIncome,
-        pensionIncome: pension + bridge,
-        filingStatus,
-        members: [profileFor(plans[0]), profileFor(plans[1])],
-        bracketIndexFactor,
-      });
-    } else {
+        return computeTax({
+          province: household.province,
+          year,
+          age: ageA,
+          taxableIncome: ti,
+          pensionIncome: pension + bridge,
+          filingStatus,
+          members: [profileFor(plans[0]), profileFor(plans[1])],
+          bracketIndexFactor,
+        });
+      }
       const filer = plans.find((p) => aliveById[p.id]) ?? plans[0];
       const filerAge = ageById[filer.id];
-      const pensionIncome = pension + bridge + (filerAge >= 65 ? rrifMin + rrifExtra + lifMin : 0);
-      tax = computeTax({ province: household.province, year, age: filerAge, taxableIncome, pensionIncome, filingStatus, bracketIndexFactor });
+      const pensionIncome = pension + bridge + (filerAge >= 65 ? rrifMin + rrifExtra + lifMin + meltExtra : 0);
+      return computeTax({ province: household.province, year, age: filerAge, taxableIncome: ti, pensionIncome, filingStatus, bracketIndexFactor });
+    };
+
+    // --- RRSP/RRIF meltdown: proactively withdraw registered to fill member A's current tax bracket,
+    // moving the after-tax proceeds to the TFSA (tax-free thereafter). Pace sets the aggressiveness:
+    // conservative also stops at the provincial bracket edge; moderate fills the federal bracket under
+    // the OAS-clawback guard; aggressive drops the guard (accepts clawback to melt faster). Computed in
+    // DEFLATED (year-0) dollars so the dated brackets line up with the projection's bracket indexing,
+    // then re-inflated. Self-funded: it relocates RRSP→TFSA net of its own tax and never touches
+    // spendable cash — so `afterTax` is priced on the base (pre-meltdown) tax. Default mode 'none' ⇒ 0.
+    // SIMPLIFICATION (flagged for validation): the net lands entirely in the TFSA (per the meltdown
+    // spec); the annual TFSA contribution room is not yet modelled, so for large fills the tax-free
+    // benefit is somewhat OVERSTATED vs spilling the excess into non-registered. ---
+    const meltMode = scenario.meltdown.mode;
+    const meltStartAge = scenario.meltdown.startAge ?? retirementAge;
+    let meltdownWd = 0;
+    if (meltMode !== 'none' && aliveById.memberA && ageById.memberA >= meltStartAge && balances.rrsp > 1e-6) {
+      const aRegShare = isCouple ? shareFor('memberA', baseRegShares, aliveById) : 1;
+      const basisReal = (isCouple ? incomeById.memberA : taxableIncome) / bracketIndexFactor;
+      const availableReal = (balances.rrsp * aRegShare) / bracketIndexFactor;
+      const wdReal = meltdownWithdrawal(basisReal, household.province, {
+        available: availableReal,
+        oasGuard: meltMode !== 'aggressive',
+        respectProvincialBracket: meltMode === 'conservative',
+      });
+      meltdownWd = wdReal * bracketIndexFactor;
     }
+
+    const taxWithout = computeYearTax(0);
+    const tax = meltdownWd > 1e-6 ? computeYearTax(meltdownWd) : taxWithout; // total bill, incl. the meltdown
+    if (meltdownWd > 1e-6) {
+      // Move the meltdown out of the RRSP; the after-tax remainder lands in the TFSA (the RRSP→TFSA pipeline).
+      balances.rrsp -= meltdownWd;
+      balances.tfsa += Math.max(0, meltdownWd - (tax - taxWithout));
+    }
+    const reportedTaxableIncome = taxableIncome + meltdownWd;
 
     // --- OAS clawback on the PRIOR year's net income (mandatory one-year lag) ---
     const incomeYear = year - 1;
@@ -488,7 +527,7 @@ export function runProjection(
         : clawbackOf(prevYearTaxableIncome, oas); // single filer reports all the household's OAS + income
 
     const grossCash = guaranteedGross + rrifExtra + tfsaWd + nonRegInc + wedgeWd; // all spendable cash
-    const afterTax = grossCash - tax - oasClawbackAmount;
+    const afterTax = grossCash - taxWithout - oasClawbackAmount; // meltdown is self-funded (net to TFSA), not spent
 
     // --- End-of-year growth on the remaining balances, each type by its own return ---
     balances.rrsp = growAccount(balances.rrsp, returnFor('rrsp'));
@@ -516,7 +555,7 @@ export function runProjection(
       rrifExtra,
       tfsaWd,
       nonRegInc,
-      taxableIncome,
+      taxableIncome: reportedTaxableIncome,
       tax,
       oasClawback: oasClawbackAmount,
       afterTax,
@@ -527,8 +566,8 @@ export function runProjection(
       netWorth,
     });
 
-    prevYearTaxableIncome = taxableIncome;
-    prevIncome = { memberA: incomeById.memberA, memberB: incomeById.memberB };
+    prevYearTaxableIncome = reportedTaxableIncome;
+    prevIncome = { memberA: incomeById.memberA + meltdownWd, memberB: incomeById.memberB };
     spendTarget *= 1 + pctToFraction(conditions.inflationPct); // index the spend target
     bracketIndexFactor *= 1 + pctToFraction(conditions.inflationPct); // index next year's tax brackets
   }
