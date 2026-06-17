@@ -183,6 +183,25 @@ export function ScenarioLab({
             <Segmented ariaLabel="Withdrawal order" value={activePreset} onChange={(v) => onScenario({ ...scenario, withdrawalOrder: WITHDRAWAL_PRESETS.find((p) => p.value === v)!.order })} options={WITHDRAWAL_PRESETS.map((p) => ({ value: p.value, label: p.label }))} />
           </div>
           <NumberField label="Target annual spending" value={a.targetAnnualSpending ?? 0} onChange={(v) => setAssumptions({ targetAnnualSpending: v })} prefix="$" step={2_500} />
+          <Toggle
+            label="Variable spending (go-go / slow-go / no-go)"
+            description="Spend more early, then taper with age — the empirical retirement pattern, not a flat line."
+            checked={!!a.spendingPhases}
+            onChange={(on) => setAssumptions({ spendingPhases: on ? { slowGoAge: 75, noGoAge: 85, slowGoPct: 0.85, noGoPct: 0.7 } : undefined })}
+          >
+            {a.spendingPhases ? (
+              <>
+                <div className="grid grid-cols-2 gap-3">
+                  <RangeField label="Slow-go from" value={a.spendingPhases.slowGoAge} min={65} max={85} onChange={(v) => setAssumptions({ spendingPhases: { ...a.spendingPhases!, slowGoAge: v } })} format={(v) => `age ${v}`} />
+                  <RangeField label="No-go from" value={a.spendingPhases.noGoAge} min={75} max={95} onChange={(v) => setAssumptions({ spendingPhases: { ...a.spendingPhases!, noGoAge: v } })} format={(v) => `age ${v}`} />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <RangeField label="Slow-go spend" value={Math.round(a.spendingPhases.slowGoPct * 100)} min={50} max={100} step={5} onChange={(v) => setAssumptions({ spendingPhases: { ...a.spendingPhases!, slowGoPct: v / 100 } })} format={(v) => `${v}%`} />
+                  <RangeField label="No-go spend" value={Math.round(a.spendingPhases.noGoPct * 100)} min={40} max={100} step={5} onChange={(v) => setAssumptions({ spendingPhases: { ...a.spendingPhases!, noGoPct: v / 100 } })} format={(v) => `${v}%`} />
+                </div>
+              </>
+            ) : null}
+          </Toggle>
           <div className="grid grid-cols-3 gap-3">
             <RangeField label="Inflation" value={a.inflationPct} min={0} max={6} step={0.1} onChange={(v) => setAssumptions({ inflationPct: v })} format={(v) => `${v.toFixed(1)}%`} />
             <RangeField label="Indexing" value={a.indexingPct} min={0} max={6} step={0.1} onChange={(v) => setAssumptions({ indexingPct: v })} format={(v) => `${v.toFixed(1)}%`} />

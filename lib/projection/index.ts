@@ -323,7 +323,10 @@ export function runProjection(
     let rrifExtra = 0;
     let tfsaWd = 0;
     let nonRegInc = 0;
-    let need = Math.max(0, spendTarget - guaranteedGross);
+    // "Go-go / slow-go / no-go" spending: scale the inflation-grown base by the member's life phase.
+    const sp = scenario.assumptions.spendingPhases;
+    const phaseMult = sp ? (ageA >= sp.noGoAge ? sp.noGoPct : ageA >= sp.slowGoAge ? sp.slowGoPct : 1) : 1;
+    let need = Math.max(0, spendTarget * phaseMult - guaranteedGross);
     if (need > 0) {
       for (const type of withdrawalOrder) {
         if (need <= 0) break;

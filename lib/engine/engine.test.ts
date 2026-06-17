@@ -39,6 +39,28 @@ describe('blendedRiskProfile', () => {
   });
 });
 
+describe('variable spending phases (go-go / slow-go / no-go)', () => {
+  const spend = { ...scenario, assumptions: { ...scenario.assumptions, targetAnnualSpending: 80_000 } };
+  const flat = runScenario(household, spend);
+  const phased = runScenario(household, {
+    ...spend,
+    assumptions: { ...spend.assumptions, spendingPhases: { slowGoAge: 75, noGoAge: 85, slowGoPct: 0.8, noGoPct: 0.6 } },
+  });
+  const disc = (r: { rrifExtra: number; tfsaWd: number; nonRegInc: number }) => r.rrifExtra + r.tfsaWd + r.nonRegInc;
+
+  it('tapers discretionary drawdown in the no-go years vs a flat plan', () => {
+    const f = flat.rows.find((r) => r.ageA === 86)!;
+    const p = phased.rows.find((r) => r.ageA === 86)!;
+    expect(disc(p)).toBeLessThanOrEqual(disc(f));
+  });
+  it('preserves more after-tax estate than flat spending (less drawn down later)', () => {
+    expect(phased.totals.estateValue).toBeGreaterThanOrEqual(flat.totals.estateValue);
+  });
+  it('go-go years are unchanged (full spending before the slow-go age)', () => {
+    expect(disc(phased.rows.find((r) => r.ageA === 65)!)).toBeCloseTo(disc(flat.rows.find((r) => r.ageA === 65)!), 6);
+  });
+});
+
 describe('runScenario (deterministic, end-to-end)', () => {
   const result = runScenario(household, scenario);
 
