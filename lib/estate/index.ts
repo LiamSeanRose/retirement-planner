@@ -161,3 +161,59 @@ export function coupleEstate(
     ),
   };
 }
+
+// --- Meltdown impact on the estate --------------------------------------------------------------
+
+/** One death's account state, for comparing estate outcomes with vs without a meltdown. */
+export interface EstateScenarioInput {
+  balances: EstateBalances;
+  accruedNonRegGain: number;
+  province: Province;
+  hasSurvivingSpouse: boolean;
+  otherTaxableIncome?: number;
+  ageAtDeath?: number;
+}
+
+export interface MeltdownEstateImpact {
+  withoutMeltdown: EstateStage;
+  withMeltdown: EstateStage;
+  /** Terminal tax avoided by the meltdown (without − with): how much of the terminal-tax bomb is defused. */
+  terminalTaxSaved: number;
+  /** Change in after-tax estate (with − without): positive when the meltdown grew the heirs' estate. */
+  afterTaxEstateDelta: number;
+}
+
+/**
+ * Quantify how an RRSP/RRIF meltdown shrinks the terminal-tax bomb and moves the after-tax estate.
+ * Pass the death-time account state for the two plans (the projection produces each): a meltdown
+ * leaves a smaller registered balance (taxed at death) and a larger TFSA (tax-free), so it typically
+ * cuts the terminal tax and lifts the after-tax estate — the headline reason the meltdown exists.
+ * For couples this compares the SECOND-death stage (the first death rolls over tax-deferred either way).
+ */
+export function meltdownEstateImpact(
+  withoutMeltdown: EstateScenarioInput,
+  withMeltdown: EstateScenarioInput,
+): MeltdownEstateImpact {
+  const without = stage(
+    withoutMeltdown.balances,
+    withoutMeltdown.accruedNonRegGain,
+    withoutMeltdown.province,
+    withoutMeltdown.hasSurvivingSpouse,
+    withoutMeltdown.otherTaxableIncome,
+    withoutMeltdown.ageAtDeath,
+  );
+  const withM = stage(
+    withMeltdown.balances,
+    withMeltdown.accruedNonRegGain,
+    withMeltdown.province,
+    withMeltdown.hasSurvivingSpouse,
+    withMeltdown.otherTaxableIncome,
+    withMeltdown.ageAtDeath,
+  );
+  return {
+    withoutMeltdown: without,
+    withMeltdown: withM,
+    terminalTaxSaved: without.terminalTax - withM.terminalTax,
+    afterTaxEstateDelta: withM.afterTaxEstateValue - without.afterTaxEstateValue,
+  };
+}

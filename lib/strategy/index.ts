@@ -14,6 +14,7 @@ import { DEFAULT_CONFIG, type YearConfig } from '../config';
 import { TAX_CONFIG_2026, type Province, type TaxBracket, type TaxConfig } from '../config/tax-2026';
 import { cppMonthlyAtStart } from '../cpp';
 import { oasMonthly } from '../oas';
+import { totalTax } from '../tax';
 
 /** Most-recent configured OAS recovery-tax threshold (from lib/config) — the meltdown's default guard. */
 const DEFAULT_OAS_THRESHOLD = (() => {
@@ -197,5 +198,94 @@ export function cppOasTimingCompare(inputs: TimingInputs): TimingComparison {
     b: { choice: optionB, lifetimeTotal: cumB },
     better,
     breakEvenAge,
+  };
+}
+
+// --- Meltdown year-policy: bracket-fill withdrawal + RRSP→TFSA pipeline --------------------------
+
+export interface MeltdownPolicyInput {
+  /** Base taxable income for the year, BEFORE the meltdown withdrawal. */
+  baseTaxableIncome: number;
+  province: Province;
+  /** Current age — available to the projection to gate the meltdown window (echoed in the result). */
+  age: number;
+  /** RRSP/RRIF balance available to withdraw this year. */
+  registeredBalance: number;
+  /** OAS recovery-tax threshold for the guard — the caller supplies the year's value from config. */
+  oasClawbackThreshold: number;
+  /** Discretionary cash already needed this year (funded first); the remainder feeds the TFSA. Default 0. */
+  spendingNeed?: number;
+  /** Also stop at the provincial bracket edge (lower of fed/prov). Default false. */
+  respectProvincialBracket?: boolean;
+  /** Tax config (brackets); defaults to the dated 2026 config. */
+  taxConfig?: TaxConfig;
+}
+
+export interface MeltdownPolicyResult {
+  age: number;
+  /** RRSP/RRIF withdrawal to fill the bracket — guarded and capped at the available balance. */
+  withdrawal: number;
+  /** The bracket ceiling targeted (federal, or min(fed, prov) when respectProvincialBracket). */
+  bracketCeiling: number;
+  /** The OAS-clawback threshold used as the guard. */
+  guardThreshold: number;
+  /** True when the OAS guard capped the fill below the bracket ceiling. */
+  guardBinding: boolean;
+  /** Incremental income tax caused by the withdrawal (real federal + provincial, from lib/tax). */
+  incrementalTax: number;
+  /** Base income + withdrawal — the resulting taxable income. */
+  newTaxableIncome: number;
+  /** After-tax proceeds not needed for spending, redirected into the TFSA (the RRSP→TFSA pipeline). */
+  tfsaPipeline: number;
+}
+
+/**
+ * The full meltdown year-policy the projection (and the optimizer) call: how much RRSP/RRIF to draw
+ * this year to fill the current federal bracket to its top — never beyond — capped by the OAS-clawback
+ * guard (unless base income already exceeds the threshold) and by the available registered balance;
+ * plus the RRSP→TFSA pipeline, the after-tax proceeds beyond the year's spending need that are
+ * redirected into the TFSA to keep compounding tax-free. All bracket/tax numbers come from lib/tax /
+ * lib/config; the threshold is supplied by the caller. Pure.
+ */
+export function meltdownPolicy(input: MeltdownPolicyInput): MeltdownPolicyResult {
+  const config = input.taxConfig ?? TAX_CONFIG_2026;
+  const base = Math.max(0, input.baseTaxableIncome);
+  const threshold = input.oasClawbackThreshold;
+
+  const fedTop = bracketTop(base, config.federal.brackets);
+  const provTop = input.respectProvincialBracket
+    ? bracketTop(base, config.provinces[input.province].brackets)
+    : Infinity;
+  const bracketCeiling = Math.min(fedTop, provTop);
+  // The OAS guard binds only when base is under the threshold AND the threshold sits below the ceiling.
+  const guardBinding = base < threshold && threshold < bracketCeiling;
+
+  const withdrawal = meltdownWithdrawal(base, input.province, {
+    taxConfig: config,
+    available: Math.max(0, input.registeredBalance),
+    oasGuard: true,
+    oasClawbackThreshold: threshold,
+    respectProvincialBracket: input.respectProvincialBracket,
+  });
+
+  const newTaxableIncome = base + withdrawal;
+  // Real incremental tax the withdrawal stacks on top of base income (age gates the 65+ age amount).
+  const incrementalTax =
+    totalTax(newTaxableIncome, input.province, { age: input.age }) -
+    totalTax(base, input.province, { age: input.age });
+
+  const afterTaxProceeds = Math.max(0, withdrawal - incrementalTax);
+  const spendingNeed = Math.max(0, input.spendingNeed ?? 0);
+  const tfsaPipeline = Math.max(0, afterTaxProceeds - spendingNeed);
+
+  return {
+    age: input.age,
+    withdrawal,
+    bracketCeiling,
+    guardThreshold: threshold,
+    guardBinding,
+    incrementalTax,
+    newTaxableIncome,
+    tfsaPipeline,
   };
 }
