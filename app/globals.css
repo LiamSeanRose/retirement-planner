@@ -110,3 +110,20 @@ input[type='range']::-moz-range-thumb {
     transition-duration: 0.001ms !important;
   }
 }
+
+/* Print: a clean summary — drop the input sidebar, action buttons, and the paper grain. */
+@media print {
+  body::before {
+    display: none;
+  }
+  aside,
+  button {
+    display: none !important;
+  }
+  .grid {
+    display: block !important;
+  }
+  main {
+    margin: 0 !important;
+  }
+}

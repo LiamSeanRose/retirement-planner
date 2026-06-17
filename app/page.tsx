@@ -8,6 +8,8 @@ import { ScenarioLab } from '@/components/scenario-lab';
 import { AnalyticsPanel } from '@/components/analytics-panel';
 import { OptimizerPanel } from '@/components/optimizer-panel';
 import { Comparison, type Snapshot } from '@/components/comparison';
+import { EstatePanel } from '@/components/estate-panel';
+import { StressPanel } from '@/components/stress-panel';
 import { useMonteCarlo } from '@/components/use-monte-carlo';
 
 const RULES_AS_OF = '2026';
@@ -77,6 +79,7 @@ export default function Page() {
   const [mounted, setMounted] = useState(false);
   const [shared, setShared] = useState(false);
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
+  const [labOpen, setLabOpen] = useState(true);
 
   // Restore a shared plan from the URL on first mount.
   useEffect(() => {
@@ -114,15 +117,25 @@ export default function Page() {
   return (
     <div className="relative z-10 mx-auto max-w-[1500px] px-4 py-6 lg:px-8">
       <Masthead onShare={onShare} shared={shared} />
-      <div className="mt-6 grid gap-6 lg:grid-cols-[380px_1fr]">
-        <aside className="lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:self-start lg:overflow-y-auto lg:pr-1">
+      <button
+        type="button"
+        onClick={() => setLabOpen((v) => !v)}
+        aria-expanded={labOpen}
+        className="mt-4 w-full rounded border border-line bg-surface px-3 py-2 text-sm font-medium text-ink lg:hidden"
+      >
+        {labOpen ? 'Hide plan inputs ▴' : 'Edit plan inputs ▾'}
+      </button>
+      <div className="mt-4 grid gap-6 lg:mt-6 lg:grid-cols-[380px_1fr]">
+        <aside className={`${labOpen ? 'block' : 'hidden'} lg:!block lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:self-start lg:overflow-y-auto lg:pr-1`}>
           <ScenarioLab household={household} scenario={scenario} onHousehold={setHousehold} onScenario={setScenario} />
         </aside>
-        <main className="space-y-5">
+        <main className="space-y-5" aria-live="polite" aria-busy={mcLoading}>
           {mounted ? (
             <>
               <AnalyticsPanel result={result} mc={mc} mcLoading={mcLoading} />
+              <EstatePanel household={household} scenario={scenario} result={result} />
               <OptimizerPanel household={household} scenario={scenario} onApply={setScenario} />
+              <StressPanel household={household} scenario={scenario} />
               <Comparison
                 current={result}
                 snapshots={snapshots}
