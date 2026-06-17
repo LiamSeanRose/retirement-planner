@@ -64,11 +64,19 @@ export interface MonteCarloOpts {
   /** Parametric return model: annual return ~ Normal(meanPct, volPct). Omitted ⇒ degenerate 0/0. */
   distribution?: { meanPct: number; volPct: number };
   /**
-   * Per-account-type return model. When present, each year draws an INDEPENDENT return per account
-   * type (correlation is a later refinement) and the path carries them as `returnByType`; the
-   * single `distribution` is then unused. Omitted ⇒ the single-`distribution` path.
+   * Per-account-type return model. When present, each year draws a return per account type and the
+   * path carries them as `returnByType`; the single `distribution` is then unused. Draws are
+   * independent unless `correlation` is set. Omitted ⇒ the single-`distribution` path.
    */
   distributionByType?: DistributionByType;
+  /**
+   * Cross-account return correlation ρ ∈ [0, 1] for per-account sampling (only used with
+   * `distributionByType`). 0 (default) = independent draws — the EXACT prior behaviour and rng
+   * sequence. Above 0, a single shared "market" factor links the accounts (equicorrelation: every
+   * pair correlates at ρ), so a market-wide down year hits them together — more realistic tail risk.
+   * ρ = 1 = perfectly correlated. Off by default so existing results are unchanged.
+   */
+  correlation?: number;
   /** Inflation/indexing held flat across every sampled path (only returns are sampled). Default 0/0. */
   assumptions?: { inflationPct?: number; indexingPct?: number };
 }
@@ -184,6 +192,7 @@ export function runMonteCarlo(makeRun: MakeRun, opts: MonteCarloOpts): MonteCarl
 
   const rng = createRng(seed);
   const dByType = opts.distributionByType;
+  const rho = Math.min(Math.max(opts.correlation ?? 0, 0), 1);
 
   // One sampled path: per-account-type returns when configured, otherwise a single market return.
   // `YearReturns[]` is assignable to `ReturnPath`; the extra `returnByType` rides through to the
@@ -192,9 +201,27 @@ export function runMonteCarlo(makeRun: MakeRun, opts: MonteCarloOpts): MonteCarl
     if (!dByType) return sampledPath(years, () => rng.normal(meanPct, volPct), { inflationPct, indexingPct });
     const path: YearReturns[] = new Array(years);
     for (let i = 0; i < years; i++) {
-      const rrsp = rng.normal(dByType.rrsp.meanPct, dByType.rrsp.volPct);
-      const tfsa = rng.normal(dByType.tfsa.meanPct, dByType.tfsa.volPct);
-      const nonReg = rng.normal(dByType.nonReg.meanPct, dByType.nonReg.volPct);
+      let rrsp: number;
+      let tfsa: number;
+      let nonReg: number;
+      if (rho <= 0) {
+        // Independent draws (default) — exact same rng sequence as before, so results are unchanged.
+        rrsp = rng.normal(dByType.rrsp.meanPct, dByType.rrsp.volPct);
+        tfsa = rng.normal(dByType.tfsa.meanPct, dByType.tfsa.volPct);
+        nonReg = rng.normal(dByType.nonReg.meanPct, dByType.nonReg.volPct);
+      } else {
+        // Single-factor equicorrelation: one shared market shock zM plus an idiosyncratic shock per
+        // account. Each account's standardized shock = √ρ·zM + √(1−ρ)·zᵢ is still N(0,1), with every
+        // pairwise correlation = ρ — so a market-wide down year drags all accounts together.
+        const a = Math.sqrt(rho);
+        const b = Math.sqrt(1 - rho);
+        const zMarket = rng.normal(0, 1);
+        const draw = (d: { meanPct: number; volPct: number }): number =>
+          d.meanPct + d.volPct * (a * zMarket + b * rng.normal(0, 1));
+        rrsp = draw(dByType.rrsp);
+        tfsa = draw(dByType.tfsa);
+        nonReg = draw(dByType.nonReg);
+      }
       path[i] = { returnPct: (rrsp + tfsa + nonReg) / 3, inflationPct, indexingPct, returnByType: { rrsp, tfsa, nonReg } };
     }
     return path;

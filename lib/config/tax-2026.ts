@@ -1,11 +1,13 @@
 /**
  * Dated config — 2026 income-tax constants: federal + all 13 provinces/territories.
  *
- * FEDERAL + ONTARIO are seeded EXACTLY from the plan Appendix (the validated source) and are
- * marked `verified: true`. The other 12 provinces/territories carry their bracket STRUCTURE with
- * best-effort recent values but are marked `verified: false` — every such number is a TODO to
- * confirm against canada.ca / the province before it drives a shipped projection. Nothing here is
- * silently guessed: unverified data is flagged as unverified.
+ * VERIFIED 2026 (marked `verified: true`): FEDERAL + ONTARIO (plan Appendix), and BRITISH COLUMBIA
+ * + ALBERTA (TaxTips.ca, retrieved 2026-06 — see each province's note). Quebec's 16.5% federal
+ * abatement is wired and verified, though its brackets/credits remain ~2025 best-effort. The
+ * remaining provinces/territories carry their bracket STRUCTURE with best-effort ~2025 values and
+ * are marked `verified: false` — every such number is a TODO to confirm against canada.ca / the
+ * province before it drives a shipped projection. Nothing here is silently guessed: unverified data
+ * is flagged as unverified (see lib/ENGINE-NOTES.md for the full verification posture).
  *
  * Non-refundable credits are valued at the lowest-bracket rate (`creditRate`). Budget 2025 cut the
  * lowest FEDERAL rate to 14% (from 15%), fully in effect for 2026 — so 2026 federal credits are
@@ -43,12 +45,20 @@ export interface ProvinceTax {
   surtax?: SurtaxTier[];
   /** Ontario Health Premium applies (income-tested, see ONTARIO_HEALTH_PREMIUM). */
   hasHealthPremium?: boolean;
+  /** Quebec only: the federal abatement reduces BASIC federal tax for QC residents (16.5%). */
+  federalAbatementRate?: number;
   note?: string;
 }
 
 export interface FederalTax {
   brackets: TaxBracket[];
+  /** FULL basic personal amount (enhanced BPA), used at or below the grind's start income. */
   basicPersonalAmount: number;
+  /** Floor BPA for top-bracket incomes (the enhancement is fully ground away). */
+  basicPersonalAmountMin: number;
+  /** Net income where the enhanced-BPA grind begins / ends (the 29% and 33% bracket thresholds). */
+  bpaGrindStart: number;
+  bpaGrindEnd: number;
   /** Lowest-bracket rate used to value non-refundable credits (14% for 2026). */
   creditRate: number;
   ageAmountMax: number;
@@ -72,7 +82,13 @@ const FEDERAL_2026: FederalTax = {
     { upTo: 258_482, rate: 0.29 },
     { upTo: null, rate: 0.33 },
   ],
-  basicPersonalAmount: 16_452, // TODO: model the high-income BPA grind to ~$14,538 (top bracket); flat for v1
+  // Enhanced BPA $16,452, ground down linearly to the $14,538 floor across the top two brackets
+  // (CRA: the enhancement phases out as net income runs from the 29% bracket threshold to the 33%
+  // one — $181,440 → $258,482 for 2026). See federalBasicPersonalAmount() in lib/tax.
+  basicPersonalAmount: 16_452,
+  basicPersonalAmountMin: 14_538,
+  bpaGrindStart: 181_440,
+  bpaGrindEnd: 258_482,
   creditRate: 0.14,
   ageAmountMax: 9_208,
   ageAmountThreshold: 46_432, // net income where the 65+ age amount starts phasing out
@@ -123,9 +139,43 @@ const u = (
 ): ProvinceTax => ({ verified: false, brackets, basicPersonalAmount, creditRate: brackets[0].rate, note: `UNVERIFIED ~2025 values — confirm 2026: ${note}` });
 
 const OTHERS: Record<Exclude<Province, 'ON'>, ProvinceTax> = {
-  QC: u([{ upTo: 53_255, rate: 0.14 }, { upTo: 106_495, rate: 0.19 }, { upTo: 129_590, rate: 0.24 }, { upTo: null, rate: 0.2575 }], 18_571, 'Quebec also has the federal abatement + distinct credit rules — needs its own treatment'),
-  BC: u([{ upTo: 49_279, rate: 0.0506 }, { upTo: 98_560, rate: 0.077 }, { upTo: 113_158, rate: 0.105 }, { upTo: 137_407, rate: 0.1229 }, { upTo: 186_306, rate: 0.147 }, { upTo: 259_829, rate: 0.168 }, { upTo: null, rate: 0.205 }], 12_932, 'BC'),
-  AB: u([{ upTo: 60_000, rate: 0.08 }, { upTo: 151_234, rate: 0.1 }, { upTo: 181_481, rate: 0.12 }, { upTo: 241_974, rate: 0.13 }, { upTo: 362_961, rate: 0.14 }, { upTo: null, rate: 0.15 }], 22_323, 'AB added the 8% sub-$60k bracket in 2025'),
+  QC: {
+    ...u([{ upTo: 53_255, rate: 0.14 }, { upTo: 106_495, rate: 0.19 }, { upTo: 129_590, rate: 0.24 }, { upTo: null, rate: 0.2575 }], 18_571, 'QC brackets ~2025 (confirm 2026). Federal abatement IS applied; distinct refundable/credit rules still approximated by the lowest-rate credit valuation'),
+    federalAbatementRate: 0.165, // 16.5% federal abatement for Quebec residents
+  },
+  // VERIFIED 2026 — TaxTips.ca/taxrates/bc.htm (retrieved 2026-06). BC raised its lowest rate to
+  // 5.60% for 2026 (the 5.06% previously here was the 2025 rate); thresholds indexed 2.2%. BC's
+  // separate low-income tax-reduction credit is not modelled — see ENGINE-NOTES.
+  BC: {
+    verified: true,
+    brackets: [
+      { upTo: 50_363, rate: 0.056 },
+      { upTo: 100_728, rate: 0.077 },
+      { upTo: 115_648, rate: 0.105 },
+      { upTo: 140_430, rate: 0.1229 },
+      { upTo: 190_405, rate: 0.147 },
+      { upTo: 265_545, rate: 0.168 },
+      { upTo: null, rate: 0.205 },
+    ],
+    basicPersonalAmount: 13_216,
+    creditRate: 0.056,
+    note: 'VERIFIED 2026 (TaxTips.ca). BC low-income tax-reduction credit not modelled.',
+  },
+  // VERIFIED 2026 — TaxTips.ca/taxrates/ab.htm (retrieved 2026-06).
+  AB: {
+    verified: true,
+    brackets: [
+      { upTo: 61_200, rate: 0.08 },
+      { upTo: 154_259, rate: 0.1 },
+      { upTo: 185_111, rate: 0.12 },
+      { upTo: 246_813, rate: 0.13 },
+      { upTo: 370_220, rate: 0.14 },
+      { upTo: null, rate: 0.15 },
+    ],
+    basicPersonalAmount: 22_769,
+    creditRate: 0.08,
+    note: 'VERIFIED 2026 (TaxTips.ca).',
+  },
   MB: u([{ upTo: 47_000, rate: 0.108 }, { upTo: 100_000, rate: 0.1275 }, { upTo: null, rate: 0.174 }], 15_780, 'MB'),
   SK: u([{ upTo: 53_463, rate: 0.105 }, { upTo: 152_750, rate: 0.125 }, { upTo: null, rate: 0.145 }], 18_991, 'SK'),
   NB: u([{ upTo: 51_306, rate: 0.094 }, { upTo: 102_614, rate: 0.14 }, { upTo: 190_060, rate: 0.16 }, { upTo: null, rate: 0.195 }], 13_396, 'NB'),
