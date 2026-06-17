@@ -40,7 +40,7 @@ export function StressPanel({ household, scenario }: { household: Household; sce
       let h = household;
       let s = scenario;
       if (st.appliesAt === 'projection.endAge') s = { ...s, assumptions: { ...s.assumptions, endAge: Math.max(100, s.assumptions.endAge) } };
-      else if (st.appliesAt === 'projection.spend') s = { ...s, assumptions: { ...s.assumptions, targetAnnualSpending: (s.assumptions.targetAnnualSpending ?? 0) + 9_000 } };
+      else if (st.appliesAt === 'projection.spend') s = { ...s, events: { ...s.events, oneTimeExpense: s.events.oneTimeExpense ?? { atAge: household.memberA.targetRetirementAge + 10, amount: 50_000 } } };
       else if (st.appliesAt === 'projection.benefits') h = { ...h, memberA: { ...h.memberA, estimatedCppAt65Monthly: h.memberA.estimatedCppAt65Monthly * 0.85 } };
       else if (st.appliesAt === 'projection.survivorRule')
         s = { ...s, events: { ...s.events, earlyMortality: s.events.earlyMortality ?? { member: 'memberB', atAge: 80 } } };
