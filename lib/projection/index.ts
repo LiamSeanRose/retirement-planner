@@ -281,6 +281,9 @@ export function runProjection(
   for (let i = 0; retirementAge + i <= endAge; i++) {
     const ageA = retirementAge + i;
     const year = retirementYear + i;
+    // "If this happens": relocate to another province at an age — provincial income tax follows the move.
+    const relo = scenario.events.relocate;
+    const taxProvince = relo && ageA >= relo.atAge ? relo.toProvince : household.province;
     const conditions = path[i] ?? path[path.length - 1] ?? {
       returnPct: 0,
       inflationPct: scenario.assumptions.inflationPct,
@@ -320,6 +323,17 @@ export function runProjection(
       if (dead && alive) {
         const deadCpp = ageById[dead.id] >= dead.cppStartAge ? dead.cppAnnual : 0;
         linesById[alive.id].cpp += survivorCppBenefitAnnual(deadCpp, linesById[alive.id].cpp, config);
+      }
+    }
+
+    // "If this happens": a future cut to government benefits (policy risk) — scale CPP & OAS for every
+    // member from the year member A reaches `fromAge`. Reduces both the benefit AND its clawback base.
+    const benefitCut = scenario.events.benefitCut;
+    if (benefitCut && ageA >= benefitCut.fromAge) {
+      const keep = Math.max(0, 1 - benefitCut.reductionPct);
+      for (const p of plans) {
+        linesById[p.id].cpp *= keep;
+        linesById[p.id].oas *= keep;
       }
     }
 
@@ -482,7 +496,7 @@ export function runProjection(
           };
         };
         return computeTax({
-          province: household.province,
+          province: taxProvince,
           year,
           age: ageA,
           taxableIncome: ti,
@@ -495,7 +509,7 @@ export function runProjection(
       const filer = plans.find((p) => aliveById[p.id]) ?? plans[0];
       const filerAge = ageById[filer.id];
       const pensionIncome = pension + bridge + (filerAge >= 65 ? rrifMin + rrifExtra + lifMin + meltExtra : 0);
-      return computeTax({ province: household.province, year, age: filerAge, taxableIncome: ti, pensionIncome, filingStatus, bracketIndexFactor });
+      return computeTax({ province: taxProvince, year, age: filerAge, taxableIncome: ti, pensionIncome, filingStatus, bracketIndexFactor });
     };
 
     // --- RRSP/RRIF meltdown: proactively withdraw registered to fill member A's current tax bracket,
@@ -603,8 +617,11 @@ export function runProjection(
   // TAX-FREE (no deemed-disposition gain). Equivalent to lib/estate's second-death stage.
   const registeredAtDeath = finalBalances.rrsp + finalBalances.lira;
   const terminalFactor = Math.pow(1 + inflationFraction, Math.max(0, rows.length - 1)); // brackets indexed to the final year
+  // If the plan relocates and death is after the move, the final return is filed in the new province.
+  const relocate = scenario.events.relocate;
+  const terminalProvince = relocate && endAge >= relocate.atAge ? relocate.toProvince : household.province;
   const terminalTax = computeTax({
-    province: household.province,
+    province: terminalProvince,
     year: finalYear,
     age: endAge,
     taxableIncome: registeredAtDeath,

@@ -104,6 +104,16 @@ export function SetupWizard({
                 <NumberField label="TFSA balance" value={ans.tfsa} onChange={(v) => set({ tfsa: v })} prefix="$" step={5_000} />
                 <NumberField label="Non-registered balance" value={ans.nonReg} onChange={(v) => set({ nonReg: v })} prefix="$" step={5_000} />
               </div>
+              <div>
+                <p className="mb-1.5 text-[0.8125rem] font-medium text-muted">How are your savings invested?</p>
+                <Segmented
+                  ariaLabel="Risk tolerance"
+                  value={ans.riskTolerance}
+                  onChange={(v) => set({ riskTolerance: v })}
+                  options={[{ value: 'Conservative' as const, label: 'Conservative' }, { value: 'Balanced' as const, label: 'Balanced' }, { value: 'Growth' as const, label: 'Growth' }, { value: 'Aggressive' as const, label: 'Aggressive' }]}
+                />
+                <p className="mt-1 text-xs text-faint">Sets the expected return and how bumpy the ride is in the market simulations.</p>
+              </div>
               <Toggle label="I own my home" description="Tracked separately from savings; passes to your estate tax-free. You can model downsizing later." checked={ans.ownsHome} onChange={(v) => set({ ownsHome: v })}>
                 {ans.ownsHome ? <NumberField label="Approximate home value" value={ans.homeValue} onChange={(v) => set({ homeValue: v })} prefix="$" step={25_000} /> : null}
               </Toggle>

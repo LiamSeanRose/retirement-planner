@@ -158,6 +158,16 @@ export interface Scenario {
      * come; if it does, it's a bonus."
      */
     windfall?: { atAge: number; amount: number };
+    /**
+     * Policy-risk what-if: a permanent cut to GOVERNMENT benefits (CPP + OAS) by `reductionPct`
+     * (∈ [0,1]) from `fromAge` onward — "what if CPP/OAS are trimmed in the future?".
+     */
+    benefitCut?: { fromAge: number; reductionPct: number };
+    /**
+     * Relocate to another province at `atAge`: provincial income tax switches to `toProvince` from then
+     * on (e.g. retire in Ontario, move to Alberta at 70). Federal tax and clawback are unchanged.
+     */
+    relocate?: { atAge: number; toProvince: Province };
   };
 }
 

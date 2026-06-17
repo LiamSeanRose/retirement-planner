@@ -15,6 +15,7 @@ import { HistoricalPanel } from '@/components/historical-panel';
 import { InsightsPanel } from '@/components/insights-panel';
 import { MeltdownCallout } from '@/components/meltdown-callout';
 import { PlainEnglish } from '@/components/plain-english';
+import { QuestionsPanel } from '@/components/questions-panel';
 import { SetupWizard } from '@/components/setup-wizard';
 import { useMonteCarlo } from '@/components/use-monte-carlo';
 
@@ -176,6 +177,7 @@ export default function PlanPage() {
           {mounted ? (
             <>
               <PlainEnglish household={household} scenario={scenario} result={result} successProbability={mc?.probabilityOfSuccess} />
+              <QuestionsPanel household={household} scenario={scenario} />
               <AnalyticsPanel result={result} mc={mc} mcLoading={mcLoading} />
               <InsightsPanel household={household} scenario={scenario} />
               <MeltdownCallout household={household} scenario={scenario} />
