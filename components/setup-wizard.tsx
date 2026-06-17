@@ -86,14 +86,22 @@ export function SetupWizard({
               <NumberField label="Best 5-year average salary" value={ans.bestFiveSalary} onChange={(v) => set({ bestFiveSalary: v })} prefix="$" step={1_000} />
               <RangeField label="Years of pensionable service (at retirement)" value={ans.serviceYears} min={2} max={40} step={0.5} onChange={(v) => set({ serviceYears: v })} format={(v) => `${v} yrs`} />
               <RangeField label="When do you want to retire?" value={ans.retireAge} min={50} max={71} onChange={(v) => set({ retireAge: v })} format={(v) => `age ${v} (in ${Math.max(0, v - age)} yr${v - age === 1 ? '' : 's'})`} />
-              <p className="text-xs leading-snug text-faint">Your pension is <span className="text-muted">2% × best-5 salary × years of service</span>, with a bridge benefit until 65 — we&apos;ll compute the exact figure and any early-retirement reduction.</p>
+              <p className="text-xs leading-snug text-faint">
+                Your pension is <span className="text-muted">2% × best-5 salary × years of service</span>, with a bridge to 65 — we compute the exact figure and any
+                reduction. Find your salary and service on a recent pay stub or your{' '}
+                <a href="https://www.canada.ca/en/treasury-board-secretariat/services/pension-plan.html" target="_blank" rel="noopener noreferrer" className="text-evergreen underline decoration-line underline-offset-2 hover:decoration-evergreen">public service pension</a> statement.
+              </p>
             </>
           )}
 
           {step === 2 && (
             <>
               <NumberField label="Estimated CPP at 65 (monthly)" value={ans.cppAt65} onChange={(v) => set({ cppAt65: v })} prefix="$" step={50} />
-              <p className="text-xs leading-snug text-faint">From your <span className="text-muted">My Service Canada Account</span> statement. Not sure? ~$1,100/mo is a reasonable middle estimate; the 2026 maximum is $1,508. OAS is included automatically (you can defer either later for a bigger benefit).</p>
+              <p className="text-xs leading-snug text-faint">
+                Get your exact figure from{' '}
+                <a href="https://www.canada.ca/en/employment-social-development/services/my-account.html" target="_blank" rel="noopener noreferrer" className="text-evergreen underline decoration-line underline-offset-2 hover:decoration-evergreen">My Service Canada Account</a>{' '}
+                → “View my benefit estimates.” Not sure? ~$1,100/mo is a reasonable middle estimate; the 2026 maximum is $1,508. OAS is added automatically.
+              </p>
             </>
           )}
 
@@ -104,6 +112,7 @@ export function SetupWizard({
                 <NumberField label="TFSA balance" value={ans.tfsa} onChange={(v) => set({ tfsa: v })} prefix="$" step={5_000} />
                 <NumberField label="Non-registered balance" value={ans.nonReg} onChange={(v) => set({ nonReg: v })} prefix="$" step={5_000} />
               </div>
+              <p className="text-xs leading-snug text-faint">From your latest RRSP/TFSA and investment statements (your bank or brokerage). Leave any you don&apos;t have at $0.</p>
               <div>
                 <p className="mb-1.5 text-[0.8125rem] font-medium text-muted">How are your savings invested?</p>
                 <Segmented
