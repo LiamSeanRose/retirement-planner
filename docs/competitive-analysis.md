@@ -72,7 +72,7 @@ Optiml is the primary benchmark (Dad uses it and likes it). Researched 2026-06-1
 ## 5. Roadmap — close the gaps, in priority order
 
 1. **Variable spending phases (go-go / slow-go / no-go)** — the marquee gap and a realistic model (retirees spend ~100% to ~75, then taper 20–30%). Highest impact, clean engine change. **← building now.**
-2. ~~**LIRA / LIF accounts**~~ — **DONE.** Locked-in account from a PSPP transfer value; pays the federal LIF mandatory minimum (RRIF factor), the rest stays locked and grows, taxed + estate-counted as registered. Federal LIF *maximum* table + 50%-unlock are captured for a future "draw up to the LIF max / unlock" refinement.
+2. ~~**LIRA / LIF accounts**~~ — **DONE (complete).** Locked-in account from a PSPP transfer value: pays the federal LIF mandatory minimum (RRIF factor), can be tapped for spending **up to the federal LIF maximum** (the rest stays locked and grows), taxed + estate-counted as registered, with the federal **one-time 50% unlock** to RRSP at retirement (55+). The full locked-in lifecycle — something Optiml doesn't surface at all.
 3. **Historical-returns scenarios** — run the plan over real market sequences (block bootstrap) alongside parametric Monte Carlo.
 4. **FHSA / RESP / corporate (CCPC)** — broaden beyond the core three account types.
 5. **Persisted named-plan library + PDF/CSV export** — match "save 20 plans / download".
