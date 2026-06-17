@@ -20,7 +20,6 @@ import { SetupWizard } from '@/components/setup-wizard';
 import { useMonteCarlo } from '@/components/use-monte-carlo';
 
 const RULES_AS_OF = '2026';
-const SEEN_KEY = 'almanac.seen';
 
 function Masthead({ onShare, shared, onSetup }: { onShare: () => void; shared: boolean; onSetup: () => void }) {
   return (
@@ -83,7 +82,9 @@ export default function PlanPage() {
   const [labOpen, setLabOpen] = useState(true);
   const [wizardOpen, setWizardOpen] = useState(false);
 
-  // Restore a shared plan from the URL on first mount, and greet new visitors with the guided setup.
+  // Restore a shared plan from the URL on first mount. The guided setup is opt-in — it opens only when
+  // the homepage CTA links here with ?wizard=1, or the user clicks "Guided setup". Never auto-open over
+  // the planner, which would cover the editable sidebar with the modal backdrop.
   useEffect(() => {
     const s = readStateFromUrl();
     if (s) {
@@ -93,13 +94,7 @@ export default function PlanPage() {
     setRestored(true);
     setMounted(true);
     const wantsWizard = new URLSearchParams(window.location.search).has('wizard');
-    let seen = false;
-    try {
-      seen = !!window.localStorage.getItem(SEEN_KEY);
-    } catch {
-      seen = false;
-    }
-    if (!s && (wantsWizard || !seen)) setWizardOpen(true);
+    if (!s && wantsWizard) setWizardOpen(true);
   }, []);
 
   // Persist the plan to the URL hash as it changes (client-only, no PII leaves the browser).
@@ -129,23 +124,12 @@ export default function PlanPage() {
     }
   };
 
-  const markSeen = () => {
-    try {
-      window.localStorage.setItem(SEEN_KEY, '1');
-    } catch {
-      /* private mode / storage disabled — ignore */
-    }
-  };
   const completeWizard = (h: Household, sc: Scenario) => {
     setHousehold(h);
     setScenario(sc);
     setWizardOpen(false);
-    markSeen();
   };
-  const closeWizard = () => {
-    setWizardOpen(false);
-    markSeen();
-  };
+  const closeWizard = () => setWizardOpen(false);
 
   const onShare = () => {
     const url = `${window.location.origin}${window.location.pathname}#p=${encodeState({ household, scenario })}`;
