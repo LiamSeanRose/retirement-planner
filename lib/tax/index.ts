@@ -11,6 +11,7 @@
 import {
   ONTARIO_HEALTH_PREMIUM,
   TAX_CONFIG_2026,
+  type FederalTax,
   type Province,
   type TaxBracket,
   type TaxConfig,
@@ -47,12 +48,24 @@ function ageAmount(netIncome: number, age: number, max: number, threshold: numbe
   return Math.max(0, max - Math.max(0, netIncome - threshold) * rate);
 }
 
-/** Net federal tax after non-refundable credits (BPA + age amount + pension income amount). */
+/**
+ * Federal basic personal amount with the high-income grind: the enhanced BPA reduces linearly from
+ * `basicPersonalAmount` to `basicPersonalAmountMin` as net income runs from `bpaGrindStart` to
+ * `bpaGrindEnd` (the 29%→33% bracket band; the CRA enhanced-BPA phase-out).
+ */
+export function federalBasicPersonalAmount(netIncome: number, f: FederalTax): number {
+  if (netIncome <= f.bpaGrindStart) return f.basicPersonalAmount;
+  if (netIncome >= f.bpaGrindEnd) return f.basicPersonalAmountMin;
+  const frac = (netIncome - f.bpaGrindStart) / (f.bpaGrindEnd - f.bpaGrindStart);
+  return f.basicPersonalAmount - (f.basicPersonalAmount - f.basicPersonalAmountMin) * frac;
+}
+
+/** Net federal tax after non-refundable credits (BPA with grind + age amount + pension income amount). */
 export function federalTax(taxableIncome: number, opts: CreditOpts = {}, config: TaxConfig = TAX_CONFIG_2026): number {
   const f = config.federal;
   const netIncome = opts.netIncome ?? taxableIncome;
   const grossCredits =
-    f.basicPersonalAmount +
+    federalBasicPersonalAmount(netIncome, f) +
     ageAmount(netIncome, opts.age ?? 0, f.ageAmountMax, f.ageAmountThreshold, f.ageAmountReductionRate) +
     Math.min(opts.eligiblePensionIncome ?? 0, f.pensionIncomeAmount);
   return Math.max(0, bracketTax(taxableIncome, f.brackets) - grossCredits * f.creditRate);
@@ -98,9 +111,13 @@ export function provincialTax(
   return total;
 }
 
-/** Combined federal + provincial tax for one person. */
+/**
+ * Combined federal + provincial tax for one person. Quebec residents get the 16.5% federal abatement
+ * (a reduction of BASIC federal tax) before the Quebec provincial tax is added.
+ */
 export function totalTax(taxableIncome: number, province: Province, opts: CreditOpts = {}, config: TaxConfig = TAX_CONFIG_2026): number {
-  return federalTax(taxableIncome, opts, config) + provincialTax(taxableIncome, province, opts, config);
+  const abatement = config.provinces[province].federalAbatementRate ?? 0;
+  return federalTax(taxableIncome, opts, config) * (1 - abatement) + provincialTax(taxableIncome, province, opts, config);
 }
 
 /** One person's income, split by how each source is treated for pension income splitting. */

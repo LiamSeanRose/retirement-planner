@@ -309,3 +309,21 @@ describe('runProjection — non-registered taxation', () => {
     expect(r0.taxableIncome).toBeGreaterThan(0);
   });
 });
+
+// ---- B2: couple-mode numeric checks ----
+
+describe('runProjection — couple numeric checks', () => {
+  it('both members receive OAS once eligible (household OAS ≈ two single OAS)', () => {
+    const at66 = runProjection(couple, coupleScenario, path, splitTax).rows.find((r) => r.ageA === 66)!;
+    near(at66.oas, 2 * DEFAULT_CONFIG.oas.maxMonthly65to74 * 12, 1); // both 66 (<75, no bump), both eligible
+  });
+
+  it('the survivor receives a CPP survivor benefit, capped at the combined-benefit maximum', () => {
+    const death: Scenario = { ...coupleScenario, events: { earlyMortality: { member: 'memberB', atAge: 70 } } };
+    const aliveCpp = runProjection(couple, coupleScenario, path, splitTax).rows.find((r) => r.ageA === 71)!.cpp;
+    const widowedCpp = runProjection(couple, death, path, splitTax).rows.find((r) => r.ageA === 71)!.cpp;
+    expect(widowedCpp).toBeLessThan(aliveCpp); // lost most of member B's CPP
+    // member A's own CPP (15,600) + 60% of B's (3,600) would exceed the max ⇒ capped at it.
+    near(widowedCpp, DEFAULT_CONFIG.cpp.maxMonthlyAt65 * 12, 1);
+  });
+});

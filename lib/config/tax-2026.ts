@@ -43,12 +43,20 @@ export interface ProvinceTax {
   surtax?: SurtaxTier[];
   /** Ontario Health Premium applies (income-tested, see ONTARIO_HEALTH_PREMIUM). */
   hasHealthPremium?: boolean;
+  /** Quebec only: the federal abatement reduces BASIC federal tax for QC residents (16.5%). */
+  federalAbatementRate?: number;
   note?: string;
 }
 
 export interface FederalTax {
   brackets: TaxBracket[];
+  /** FULL basic personal amount (enhanced BPA), used at or below the grind's start income. */
   basicPersonalAmount: number;
+  /** Floor BPA for top-bracket incomes (the enhancement is fully ground away). */
+  basicPersonalAmountMin: number;
+  /** Net income where the enhanced-BPA grind begins / ends (the 29% and 33% bracket thresholds). */
+  bpaGrindStart: number;
+  bpaGrindEnd: number;
   /** Lowest-bracket rate used to value non-refundable credits (14% for 2026). */
   creditRate: number;
   ageAmountMax: number;
@@ -72,7 +80,13 @@ const FEDERAL_2026: FederalTax = {
     { upTo: 258_482, rate: 0.29 },
     { upTo: null, rate: 0.33 },
   ],
-  basicPersonalAmount: 16_452, // TODO: model the high-income BPA grind to ~$14,538 (top bracket); flat for v1
+  // Enhanced BPA $16,452, ground down linearly to the $14,538 floor across the top two brackets
+  // (CRA: the enhancement phases out as net income runs from the 29% bracket threshold to the 33%
+  // one — $181,440 → $258,482 for 2026). See federalBasicPersonalAmount() in lib/tax.
+  basicPersonalAmount: 16_452,
+  basicPersonalAmountMin: 14_538,
+  bpaGrindStart: 181_440,
+  bpaGrindEnd: 258_482,
   creditRate: 0.14,
   ageAmountMax: 9_208,
   ageAmountThreshold: 46_432, // net income where the 65+ age amount starts phasing out
@@ -123,7 +137,10 @@ const u = (
 ): ProvinceTax => ({ verified: false, brackets, basicPersonalAmount, creditRate: brackets[0].rate, note: `UNVERIFIED ~2025 values — confirm 2026: ${note}` });
 
 const OTHERS: Record<Exclude<Province, 'ON'>, ProvinceTax> = {
-  QC: u([{ upTo: 53_255, rate: 0.14 }, { upTo: 106_495, rate: 0.19 }, { upTo: 129_590, rate: 0.24 }, { upTo: null, rate: 0.2575 }], 18_571, 'Quebec also has the federal abatement + distinct credit rules — needs its own treatment'),
+  QC: {
+    ...u([{ upTo: 53_255, rate: 0.14 }, { upTo: 106_495, rate: 0.19 }, { upTo: 129_590, rate: 0.24 }, { upTo: null, rate: 0.2575 }], 18_571, 'QC brackets ~2025 (confirm 2026). Federal abatement IS applied; distinct refundable/credit rules still approximated by the lowest-rate credit valuation'),
+    federalAbatementRate: 0.165, // 16.5% federal abatement for Quebec residents
+  },
   BC: u([{ upTo: 49_279, rate: 0.0506 }, { upTo: 98_560, rate: 0.077 }, { upTo: 113_158, rate: 0.105 }, { upTo: 137_407, rate: 0.1229 }, { upTo: 186_306, rate: 0.147 }, { upTo: 259_829, rate: 0.168 }, { upTo: null, rate: 0.205 }], 12_932, 'BC'),
   AB: u([{ upTo: 60_000, rate: 0.08 }, { upTo: 151_234, rate: 0.1 }, { upTo: 181_481, rate: 0.12 }, { upTo: 241_974, rate: 0.13 }, { upTo: 362_961, rate: 0.14 }, { upTo: null, rate: 0.15 }], 22_323, 'AB added the 8% sub-$60k bracket in 2025'),
   MB: u([{ upTo: 47_000, rate: 0.108 }, { upTo: 100_000, rate: 0.1275 }, { upTo: null, rate: 0.174 }], 15_780, 'MB'),
