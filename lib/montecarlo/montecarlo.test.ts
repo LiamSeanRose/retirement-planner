@@ -6,6 +6,7 @@ import {
   type MonteCarloOpts,
   type RunOutcome,
 } from './index';
+import type { YearReturns } from '../../types/planner';
 
 /** A makeRun that returns pre-scripted outcomes in call order — lets us hand-compute the aggregate. */
 function scripted(outcomes: RunOutcome[]): MakeRun {
@@ -190,5 +191,35 @@ describe('runMonteCarlo — purity', () => {
     const before = JSON.stringify(out);
     runMonteCarlo(scripted([out, out]), { years: 2, runs: 2 });
     expect(JSON.stringify(out)).toBe(before);
+  });
+});
+
+describe('runMonteCarlo — after-tax bands and per-type sampling (B1)', () => {
+  it('aggregates after-tax bands when every run reports an after-tax series', () => {
+    const out = (nw: number, at: number): RunOutcome => ({ netWorthByYear: [nw], afterTaxByYear: [at], lastsToEndAge: true, estateValue: 0, lifetimeTax: 0 });
+    const r = runMonteCarlo(scripted([out(1, 10), out(2, 20), out(3, 30)]), { years: 1, runs: 3 });
+    expect(r.afterTax).toHaveLength(1);
+    near(r.afterTax[0].p50, 20); // sorted [10,20,30] -> median 20
+  });
+
+  it('leaves after-tax bands empty when runs omit the series', () => {
+    const out: RunOutcome = { netWorthByYear: [1], lastsToEndAge: true, estateValue: 0, lifetimeTax: 0 };
+    expect(runMonteCarlo(scripted([out, out]), { years: 1, runs: 2 }).afterTax).toEqual([]);
+  });
+
+  it('samples an independent return per account type into returnByType', () => {
+    const captured: YearReturns[] = [];
+    const capture: MakeRun = (path) => {
+      captured.push(path[0]);
+      return { netWorthByYear: [0], lastsToEndAge: true, estateValue: 0, lifetimeTax: 0 };
+    };
+    runMonteCarlo(capture, {
+      years: 1,
+      runs: 1,
+      seed: 3,
+      distributionByType: { rrsp: { meanPct: 6, volPct: 12 }, tfsa: { meanPct: 3, volPct: 4 }, nonReg: { meanPct: 4, volPct: 8 } },
+    });
+    expect(captured[0].returnByType).toBeDefined();
+    expect(typeof captured[0].returnByType!.rrsp).toBe('number');
   });
 });

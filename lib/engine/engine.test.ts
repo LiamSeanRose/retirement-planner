@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { Household, Scenario } from '../../types/planner';
-import { blendedRiskProfile, runMonteCarloScenario, runScenario } from './index';
+import type { Household, ReturnPathByType, Scenario } from '../../types/planner';
+import { blendedRiskProfile, blendedRiskProfileByType, runMonteCarloScenario, runScenario, runScenarioOverPath } from './index';
 
 const household: Household = {
   province: 'ON',
@@ -83,5 +83,32 @@ describe('runMonteCarloScenario (aggregated)', () => {
     const a = runMonteCarloScenario(household, mcScenario, 42);
     const b = runMonteCarloScenario(household, mcScenario, 42);
     expect(a).toEqual(b);
+  });
+
+  it('populates after-tax fan-chart bands (one per year, age-labelled, ordered)', () => {
+    const mc = runMonteCarloScenario(household, mcScenario, 42);
+    expect(mc.afterTax).toHaveLength(90 - 60 + 1);
+    expect(mc.afterTax[0].age).toBe(60);
+    expect(mc.afterTax[0].p95).toBeGreaterThanOrEqual(mc.afterTax[0].p5);
+  });
+});
+
+describe('blendedRiskProfileByType', () => {
+  it('blends the return/volatility within each account type', () => {
+    const byType = blendedRiskProfileByType(household.accounts);
+    expect(byType.rrsp.meanPct).toBeCloseTo(5, 6); // the lone rrsp account is 5%
+    expect(byType.tfsa.meanPct).toBeCloseTo(5, 6);
+    expect(byType.nonReg.meanPct).toBeCloseTo(4, 6); // the lone non-reg account is 4%
+  });
+});
+
+describe('runScenarioOverPath', () => {
+  it('runs one projection over a caller-supplied return path', () => {
+    const years = 90 - 60 + 1;
+    const customPath: ReturnPathByType = Array.from({ length: years }, () => ({ returnPct: 6, inflationPct: 2, indexingPct: 2 }));
+    const res = runScenarioOverPath(household, scenario, customPath);
+    expect(res.rows).toHaveLength(years);
+    expect(res.rows[0].ageA).toBe(60);
+    expect(Number.isFinite(res.totals.estateValue)).toBe(true);
   });
 });

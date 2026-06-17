@@ -63,6 +63,20 @@ export interface OasConfig {
   clawbackThresholdByIncomeYear: Record<number, number>;
 }
 
+/**
+ * Non-registered taxation assumptions (annual distributions + the realized-gain content of a
+ * disposition). The gross-up / inclusion RATES live in lib/accounts config; these are the planning
+ * ASSUMPTIONS about the account's yield mix and embedded gain — dated, re-verify yearly.
+ */
+export interface NonRegisteredConfig {
+  /** Fraction of a non-registered WITHDRAWAL that is realized capital gain (the rest is cost base). */
+  unrealizedGainFraction: number;
+  /** Annual interest yield (fully taxable) as a fraction of the non-registered balance. */
+  interestYield: number;
+  /** Annual eligible-dividend yield (38% gross-up) as a fraction of the non-registered balance. */
+  eligibleDividendYield: number;
+}
+
 export interface YearConfig {
   /** Human-readable "rules current as of" stamp to surface in-app. */
   asOf: string;
@@ -70,6 +84,7 @@ export interface YearConfig {
   pension: PensionConfig;
   cpp: CppConfig;
   oas: OasConfig;
+  nonRegistered: NonRegisteredConfig;
 }
 
 // YMPE history used to derive the 2026 AMPE (5-yr average of YMPE 2022-2026):
@@ -107,5 +122,11 @@ export const CONFIG_2026: YearConfig = {
       2025: 93_454,
       2026: 95_323,
     },
+  },
+  // Planning assumptions for a typical balanced non-registered holding (re-verify yearly).
+  nonRegistered: {
+    unrealizedGainFraction: 0.5, // ~half of a long-held non-reg balance is embedded gain
+    interestYield: 0.01, // ~1% interest/distributions taxed in full each year
+    eligibleDividendYield: 0.02, // ~2% eligible dividends each year (grossed up in the tax engine)
   },
 };
