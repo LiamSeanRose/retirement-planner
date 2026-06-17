@@ -10,6 +10,7 @@ import { OptimizerPanel } from '@/components/optimizer-panel';
 import { Comparison, type Snapshot } from '@/components/comparison';
 import { EstatePanel } from '@/components/estate-panel';
 import { StressPanel } from '@/components/stress-panel';
+import { HistoricalPanel } from '@/components/historical-panel';
 import { InsightsPanel } from '@/components/insights-panel';
 import { MeltdownCallout } from '@/components/meltdown-callout';
 import { useMonteCarlo } from '@/components/use-monte-carlo';
@@ -140,6 +141,7 @@ export default function Page() {
               <EstatePanel household={household} scenario={scenario} result={result} />
               <OptimizerPanel household={household} scenario={scenario} onApply={setScenario} />
               <StressPanel household={household} scenario={scenario} />
+              <HistoricalPanel household={household} scenario={scenario} />
               <Comparison
                 current={result}
                 snapshots={snapshots}

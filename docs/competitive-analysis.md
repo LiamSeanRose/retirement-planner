@@ -56,7 +56,7 @@ Optiml is the primary benchmark (Dad uses it and likes it). Researched 2026-06-1
 | **Variable spending phases (go-go/slow-go/no-go)** | ⛔ **GAP → building now** |
 | **LIRA / LIF (locked-in, PSPP transfer value)** | ✅ **BUILT** — locked-in account that pays the federal LIF mandatory minimum, taxed + estate-counted as registered (Optiml doesn't even list LIRA on its public features) |
 | **FHSA / RESP / RDSP / corporate accounts** | ⛔ **GAP** (we model RRSP/TFSA/Non-reg/LIRA) |
-| **Historical-returns scenario backtests** | ⛔ **GAP** (we have parametric Monte Carlo + named stress paths) |
+| **Historical-returns scenario backtests** | ✅ **BUILT** — replays the plan over every dated window of the S&P 500 total-return record since 1926, recentered/rescaled to the plan's own return & volatility (real sequence-of-returns risk), surfaced as a "retire-in-year" filmstrip + worst-start-year + estate distribution |
 | Save/manage many named plans | ◑ URL-encoded share + in-session snapshots (no persisted library yet) |
 | Download/export plan (PDF/CSV) | ◑ print-friendly + shareable URL (no file export yet) |
 | Account-sync integration (Wealthica) | ✕ out of scope by design (privacy: nothing leaves the browser) |
@@ -73,7 +73,7 @@ Optiml is the primary benchmark (Dad uses it and likes it). Researched 2026-06-1
 
 1. **Variable spending phases (go-go / slow-go / no-go)** — the marquee gap and a realistic model (retirees spend ~100% to ~75, then taper 20–30%). Highest impact, clean engine change. **← building now.**
 2. ~~**LIRA / LIF accounts**~~ — **DONE (complete).** Locked-in account from a PSPP transfer value: pays the federal LIF mandatory minimum (RRIF factor), can be tapped for spending **up to the federal LIF maximum** (the rest stays locked and grows), taxed + estate-counted as registered, with the federal **one-time 50% unlock** to RRSP at retirement (55+). The full locked-in lifecycle — something Optiml doesn't surface at all.
-3. **Historical-returns scenarios** — run the plan over real market sequences (block bootstrap) alongside parametric Monte Carlo.
+3. ~~**Historical-returns scenarios**~~ — **DONE.** Replays the plan over every dated window of the S&P 500 total-return record (1926–2024), recentering/rescaling each real sequence to the plan's own return & volatility — so history's *timing* (the clustering of crashes, sequence-of-returns risk) drives the result while the plan's own risk/return sets the magnitude. Aggregates the success rate across every start year, the worst year to retire into, and the estate distribution, surfaced as a "retire-in-year" filmstrip. Goes beyond Optiml's parametric stress: this is the real 1973/2000/2008 sequence, not an i.i.d. caricature.
 4. **FHSA / RESP / corporate (CCPC)** — broaden beyond the core three account types.
 5. **Persisted named-plan library + PDF/CSV export** — match "save 20 plans / download".
 6. **Cash-wedge / bucket** strategy option.

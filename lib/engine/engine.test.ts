@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Account, Household, ReturnPathByType, Scenario } from '../../types/planner';
-import { blendedRiskProfile, blendedRiskProfileByType, runMonteCarloScenario, runScenario, runScenarioOverPath } from './index';
+import { blendedRiskProfile, blendedRiskProfileByType, runHistoricalBacktest, runMonteCarloScenario, runScenario, runScenarioOverPath } from './index';
 
 const household: Household = {
   province: 'ON',
@@ -166,5 +166,42 @@ describe('runScenarioOverPath', () => {
     expect(res.rows).toHaveLength(years);
     expect(res.rows[0].ageA).toBe(60);
     expect(Number.isFinite(res.totals.estateValue)).toBe(true);
+  });
+});
+
+describe('runHistoricalBacktest (replay over real market sequences)', () => {
+  const res = runHistoricalBacktest(household, scenario);
+  const years = 90 - 60 + 1; // 31
+
+  it('forms one cohort per historical start year that fits the horizon', () => {
+    expect(res.years).toBe(years);
+    expect(res.cohorts).toBe(res.outcomes.length);
+    expect(res.cohorts).toBe(2024 - 1926 + 1 - years + 1);
+    expect(res.outcomes[0].startYear).toBe(1926);
+  });
+
+  it('reports a success rate in [0,1] and a worst start year that fits inside the record', () => {
+    expect(res.successRate).toBeGreaterThanOrEqual(0);
+    expect(res.successRate).toBeLessThanOrEqual(1);
+    expect(res.worstStartYear).not.toBeNull();
+    expect(res.worstStartYear!).toBeGreaterThanOrEqual(1926);
+    expect(res.worstStartYear! + years - 1).toBeLessThanOrEqual(2024);
+  });
+
+  it('orders the estate distribution (p5 ≤ p50 ≤ p95, min ≤ max)', () => {
+    expect(res.estate.min).toBeLessThanOrEqual(res.estate.max);
+    expect(res.estate.p5).toBeLessThanOrEqual(res.estate.p50);
+    expect(res.estate.p50).toBeLessThanOrEqual(res.estate.p95);
+  });
+
+  it('a heavier spend never backtests better than a leaner one', () => {
+    const lean = runHistoricalBacktest(household, { ...scenario, assumptions: { ...scenario.assumptions, targetAnnualSpending: 40_000 } });
+    const heavy = runHistoricalBacktest(household, { ...scenario, assumptions: { ...scenario.assumptions, targetAnnualSpending: 120_000 } });
+    expect(heavy.successRate).toBeLessThanOrEqual(lean.successRate);
+    expect(heavy.estate.p50).toBeLessThanOrEqual(lean.estate.p50);
+  });
+
+  it('is deterministic — a pure replay over a fixed record (no RNG)', () => {
+    expect(runHistoricalBacktest(household, scenario)).toEqual(res);
   });
 });

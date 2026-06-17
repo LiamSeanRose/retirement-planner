@@ -26,8 +26,9 @@ import type {
 } from '../../types/planner';
 import { DEFAULT_CONFIG, type YearConfig } from '../config';
 import { runProjection, type TaxFn } from '../projection';
-import { runMonteCarlo, type MakeRun } from '../montecarlo';
+import { runMonteCarlo, percentile, type MakeRun } from '../montecarlo';
 import { householdTaxWithSplitting, totalTax } from '../tax';
+import { buildCohorts, HISTORICAL_SERIES, SP500_TOTAL_RETURN } from '../historical';
 
 /**
  * The real tax seam: the projection asks for the year's total federal + provincial tax; we answer
@@ -181,5 +182,95 @@ export function runMonteCarloScenario(
     afterTax: mc.afterTax.map(toAgeBand),
     estateValue: { p5: mc.estateValue.p5, p50: mc.estateValue.p50, p95: mc.estateValue.p95, mean: mc.estateValue.mean },
     lifetimeTax: { p5: mc.lifetimeTax.p5, p50: mc.lifetimeTax.p50, p95: mc.lifetimeTax.p95, mean: mc.lifetimeTax.mean },
+  };
+}
+
+/** Outcome of replaying the plan over ONE historical cohort (one "retire in year X" window). */
+export interface CohortOutcome {
+  /** Calendar year this cohort retired into. */
+  startYear: number;
+  /** Did the money last to the end age? */
+  lastsToEndAge: boolean;
+  /** After-tax estate at the end of the window (terminal tax applied). */
+  estateValue: number;
+  /** Total lifetime tax over the window. */
+  lifetimeTax: number;
+  /** Age at which net worth first hit zero — present only when the cohort failed. */
+  depletionAge?: number;
+}
+
+/** Aggregate of a historical backtest: the plan replayed over every dated start year that fits. */
+export interface HistoricalBacktestResult {
+  seriesId: string;
+  seriesLabel: string;
+  source: string;
+  /** Projection horizon (years) — the cohort window length. */
+  years: number;
+  /** Number of cohorts (start years) tested. */
+  cohorts: number;
+  /** Share of cohorts whose money lasted to the end age, in [0, 1]. */
+  successRate: number;
+  /** The worst start year (a failure with the lowest estate, else the lowest estate overall). */
+  worstStartYear: number | null;
+  /** Estate distribution across cohorts. */
+  estate: { p5: number; p50: number; p95: number; min: number; max: number };
+  /** Per-cohort detail, in start-year order — drives the "retire-in-year" filmstrip. */
+  outcomes: CohortOutcome[];
+}
+
+/**
+ * Replay the plan over real market history. For each dated start year that fits the horizon, build a
+ * cohort whose returns are the historical sequence recentered/rescaled to the plan's own per-account
+ * return and volatility (see `/lib/historical`), run the real projection over it, then aggregate the
+ * success rate, the worst starting year, and the estate distribution. Pure and deterministic — a
+ * replay over a fixed record, no RNG. Fast enough for the main thread (≈100 cheap projections).
+ */
+export function runHistoricalBacktest(
+  household: Household,
+  scenario: Scenario,
+  config: YearConfig = DEFAULT_CONFIG,
+  seriesId: string = SP500_TOTAL_RETURN.id,
+): HistoricalBacktestResult {
+  const years = projectionYears(household, scenario);
+  const series = HISTORICAL_SERIES.find((s) => s.id === seriesId) ?? SP500_TOTAL_RETURN;
+  const distributionByType = blendedRiskProfileByType(household.accounts);
+  const cohorts = buildCohorts(series, years, distributionByType, {
+    inflationPct: scenario.assumptions.inflationPct,
+    indexingPct: scenario.assumptions.indexingPct,
+  });
+
+  const outcomes: CohortOutcome[] = cohorts.map((c) => {
+    const res = runScenarioOverPath(household, scenario, c.path, config);
+    return {
+      startYear: c.startYear,
+      lastsToEndAge: res.totals.lastsToEndAge,
+      estateValue: res.totals.estateValue,
+      lifetimeTax: res.totals.lifetimeTax,
+      depletionAge: res.totals.lastsToEndAge ? undefined : res.rows.find((r) => r.netWorth <= 1)?.ageA,
+    };
+  });
+
+  const n = outcomes.length;
+  const successRate = n === 0 ? 0 : outcomes.filter((o) => o.lastsToEndAge).length / n;
+  // Worst cohort: failures rank ahead of survivors (false < true), then lowest estate within each group.
+  const worst = n === 0 ? null : [...outcomes].sort((a, b) => Number(a.lastsToEndAge) - Number(b.lastsToEndAge) || a.estateValue - b.estateValue)[0];
+  const estates = outcomes.map((o) => o.estateValue).sort((a, b) => a - b);
+
+  return {
+    seriesId: series.id,
+    seriesLabel: series.label,
+    source: series.source,
+    years,
+    cohorts: n,
+    successRate,
+    worstStartYear: worst ? worst.startYear : null,
+    estate: {
+      p5: percentile(estates, 0.05),
+      p50: percentile(estates, 0.5),
+      p95: percentile(estates, 0.95),
+      min: estates[0] ?? 0,
+      max: estates[estates.length - 1] ?? 0,
+    },
+    outcomes,
   };
 }
