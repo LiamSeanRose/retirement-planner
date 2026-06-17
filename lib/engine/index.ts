@@ -33,17 +33,36 @@ import { householdTaxWithSplitting, totalTax } from '../tax';
  * The real tax seam: the projection asks for the year's total federal + provincial tax; we answer
  * with `lib/tax`. For a couple (both spouses alive) the projection hands over per-member profiles
  * and we apply the automated pension split (`householdTaxWithSplitting`); otherwise we file a single
- * return. The per-member profile shape matches `lib/tax`'s `TaxProfile` exactly.
+ * return.
+ *
+ * BRACKET INDEXING: tax brackets, credits, and thresholds are CPI-indexed annually in reality. The
+ * projection hands us `bracketIndexFactor` = (1+CPI)^years-since-retirement; we DEFLATE the year's
+ * nominal income by it, tax at the dated (config-year) brackets, then RE-INFLATE the tax by the same
+ * factor. Because the tax function is piecewise-linear and homogeneous in (income, thresholds), this
+ * is exactly equivalent to indexing every bracket/credit/threshold by the factor — neutralising the
+ * bracket creep that fixed brackets impose on inflating income. (Minor known wrinkle: the Ontario
+ * Health Premium isn't indexed in law, so it's slightly over-stated in late years — second-order vs
+ * the total; see lib/ENGINE-NOTES.)
  */
 const taxAdapter: TaxFn = (ctx) => {
+  const f = ctx.bracketIndexFactor && ctx.bracketIndexFactor > 0 ? ctx.bracketIndexFactor : 1;
   if (ctx.filingStatus === 'couple' && ctx.members) {
-    return householdTaxWithSplitting(ctx.members[0], ctx.members[1], ctx.province).tax;
+    const deflate = (m: typeof ctx.members[0]) => ({
+      age: m.age,
+      ordinaryIncome: m.ordinaryIncome / f,
+      psppPension: m.psppPension / f,
+      rrifIncome: m.rrifIncome / f,
+    });
+    return f * householdTaxWithSplitting(deflate(ctx.members[0]), deflate(ctx.members[1]), ctx.province).tax;
   }
-  return totalTax(ctx.taxableIncome, ctx.province, {
-    age: ctx.age,
-    netIncome: ctx.taxableIncome,
-    eligiblePensionIncome: ctx.pensionIncome,
-  });
+  return (
+    f *
+    totalTax(ctx.taxableIncome / f, ctx.province, {
+      age: ctx.age,
+      netIncome: ctx.taxableIncome / f,
+      eligiblePensionIncome: ctx.pensionIncome / f,
+    })
+  );
 };
 
 /** Number of projected years = retirement age … end age, inclusive (matches the projection loop). */

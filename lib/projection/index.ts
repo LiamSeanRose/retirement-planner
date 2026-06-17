@@ -58,6 +58,13 @@ export interface TaxContext {
   filingStatus: 'single' | 'couple';
   /** Per-member profiles for couple-mode pension splitting; present only when filingStatus is 'couple'. */
   members?: [TaxMemberProfile, TaxMemberProfile];
+  /**
+   * Cumulative inflation factor (1+CPI)^years-since-retirement. Tax brackets, credits, and thresholds
+   * are CPI-indexed annually in reality, so the tax engine deflates this year's nominal income by the
+   * factor, taxes it at the dated (retirement-year ≈ config-year) brackets, and re-inflates the result
+   * — neutralising the bracket creep that fixed brackets would otherwise impose on inflating income.
+   */
+  bracketIndexFactor?: number;
 }
 
 /** Injected tax engine: total federal + provincial income tax for the year (OAS clawback handled separately). */
@@ -234,6 +241,7 @@ export function runProjection(
   let prevYearTaxableIncome = 0; // single-filer clawback base (one-year lag; TFSA excluded by construction)
   let prevIncome: Record<MemberId, number> = { memberA: 0, memberB: 0 }; // per-member couple clawback base
   let spendTarget = scenario.assumptions.targetAnnualSpending ?? 0; // grows with inflation each year
+  let bracketIndexFactor = 1; // (1+CPI)^i — tax brackets/credits index with inflation, like CRA's
   let lastsToEndAge = true;
 
   for (let i = 0; retirementAge + i <= endAge; i++) {
@@ -369,12 +377,13 @@ export function runProjection(
         pensionIncome: pension + bridge,
         filingStatus,
         members: [profileFor(plans[0]), profileFor(plans[1])],
+        bracketIndexFactor,
       });
     } else {
       const filer = plans.find((p) => aliveById[p.id]) ?? plans[0];
       const filerAge = ageById[filer.id];
       const pensionIncome = pension + bridge + (filerAge >= 65 ? rrifMin + rrifExtra : 0);
-      tax = computeTax({ province: household.province, year, age: filerAge, taxableIncome, pensionIncome, filingStatus });
+      tax = computeTax({ province: household.province, year, age: filerAge, taxableIncome, pensionIncome, filingStatus, bracketIndexFactor });
     }
 
     // --- OAS clawback on the PRIOR year's net income (mandatory one-year lag) ---
@@ -421,6 +430,7 @@ export function runProjection(
     prevYearTaxableIncome = taxableIncome;
     prevIncome = { memberA: incomeById.memberA, memberB: incomeById.memberB };
     spendTarget *= 1 + pctToFraction(conditions.inflationPct); // index the spend target
+    bracketIndexFactor *= 1 + pctToFraction(conditions.inflationPct); // index next year's tax brackets
   }
 
   // --- Totals ---
@@ -434,6 +444,7 @@ export function runProjection(
   // Estate after terminal tax at the FINAL death: the registered balance is fully deemed-disposed
   // (no surviving spouse — couple first-death rollover already happened in-stream), TFSA passes
   // tax-free, non-reg terminal cap-gains deferred. Equivalent to lib/estate's second-death stage.
+  const terminalFactor = Math.pow(1 + inflationFraction, Math.max(0, rows.length - 1)); // brackets indexed to the final year
   const terminalTax = computeTax({
     province: household.province,
     year: finalYear,
@@ -441,6 +452,7 @@ export function runProjection(
     taxableIncome: finalBalances.rrsp,
     pensionIncome: 0,
     filingStatus: 'single',
+    bracketIndexFactor: terminalFactor,
   });
   const estateValue = finalBalances.rrsp - terminalTax + finalBalances.tfsa + finalBalances.nonReg;
 

@@ -119,18 +119,26 @@ interaction, not a YT bracket). **Quebec is the only province still flagged `ver
 
 ## 7. End-to-end calibration — the lifetime-tax figure
 
-The large cumulative **lifetime tax** the dashboard shows is **correct, not a bug**:
 `totals.lifetimeTax === Σ rows.tax` exactly (no terminal-tax double count — terminal/estate tax is
-reported separately in `totals.estateValue`). It is large because it is a **nominal cumulative** over
-~35 years and mandatory RRIF minimums from age 72 stack on the indexed pension + CPP + OAS at high
-marginal rates — exactly the burden the RRSP meltdown reduces. The UI should label it
-nominal-cumulative. Pinned in `lib/engine/calibration.test.ts` for a documented reference household.
+reported separately in `totals.estateValue`). The figure is a **nominal cumulative** over ~35 years.
+
+**Tax brackets, credits, and thresholds are CPI-indexed each projection year** (as CRA does in reality),
+implemented in the `lib/engine` tax adapter by deflating the year's nominal income by `(1+CPI)^i`, taxing
+at the dated brackets, and re-inflating — mathematically exact bracket indexing. This removed **~$319k of
+spurious bracket creep** from the earlier fixed-2026-bracket figure (reference household: $1,293,348 →
+$974,490). The remaining burden is the genuine forced-RRIF-minimum stack from age 72 — what the RRSP
+meltdown targets. Minor known wrinkle: the **Ontario Health Premium isn't indexed in law**, so the
+deflate-reinflate slightly over-states it in late years (second-order vs the total). Pinned in
+`lib/engine/calibration.test.ts`.
 
 ## 8. Cross-cutting simplifications (summary for validation)
 
 1. Projection models a single filer or a two-member couple (pension splitting + survivor rule); no
    dependants / other-income complexity beyond the modelled lines.
-2. CPP & OAS held at start-age nominal amounts (no year-over-year CPI indexing); pension **is** indexed.
+2. Tax brackets/credits/thresholds **are** CPI-indexed each projection year (§7); the ON Health Premium
+   is the one exception (not indexed in law) and is slightly over-stated late. CPP & OAS are still held at
+   start-age nominal amounts (pension **is** indexed) — the main remaining inflation inconsistency, a
+   candidate refinement.
 3. RRIF conversion fixed at 71; no earlier-conversion or partial-conversion lever.
 4. Provincial tax outside Ontario omits province-specific credits/surtaxes beyond the BPA.
 5. Non-registered taxation is assumption-based (no per-lot ACB tracking).
