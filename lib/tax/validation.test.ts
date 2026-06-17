@@ -51,15 +51,15 @@ describe('golden — federal tax + BPA grind', () => {
 });
 
 describe('golden — Ontario provincial tax, surtax, health premium', () => {
-  it('total ON tax on $50k ≈ $7,178', () => {
-    near(totalTax(50_000, 'ON'), 7_178.0, 0.5);
+  it('total ON tax on $50k ≈ $7,166', () => {
+    near(totalTax(50_000, 'ON'), 7_165.78, 0.5); // ON BPA $12,989 (2026): provincial $2,469.06 + federal $4,696.72
   });
 
   it('$150k triggers the Ontario surtax (provincial tax well above after-credits + health premium)', () => {
     const prov = provincialTax(150_000, 'ON');
-    near(prov, 15_189.46, 1.5); // after-credits 11,720.27 + surtax 2,719.19 + health 750
+    near(prov, 15_170.39, 1.5); // after-credits 11,708.05 + surtax 2,712.35 + health 750
     // proof the surtax is included: prov exceeds the no-surtax amount (after-credits + health).
-    expect(prov).toBeGreaterThan(11_720 + ontarioHealthPremium(150_000));
+    expect(prov).toBeGreaterThan(11_708 + ontarioHealthPremium(150_000));
   });
 });
 
