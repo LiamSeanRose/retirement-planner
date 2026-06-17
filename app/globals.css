@@ -1,0 +1,112 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Financial-almanac theme. Warm paper ground, deep ink text, evergreen primary, a single
+ * restrained maple accent reserved for the confidence signal and warnings.
+ */
+:root {
+  --paper: #f6f1e7;
+  --surface: #fcfaf4;
+  --ink: #1d241f;
+  --muted: #5b635a;
+  --faint: #8a9088;
+  --line: #e2dccd;
+  --evergreen: #1f4d3a;
+  --evergreen-soft: #3a6b54;
+  --maple: #a4302a;
+  --gold: #b07d2b;
+
+  /* Cash-flow series — harmonious, distinguishable, evergreen→gold→clay progression */
+  --c-pension: #1f4d3a;
+  --c-bridge: #3a6b54;
+  --c-cpp: #6d8f4e;
+  --c-oas: #b07d2b;
+  --c-reg: #c98a3f;
+  --c-tfsa: #7a8a99;
+  --c-nonreg: #9a6b58;
+  --c-other: #a4302a;
+}
+
+* {
+  border-color: var(--line);
+}
+
+body {
+  background-color: var(--paper);
+  color: var(--ink);
+  font-feature-settings: 'ss01', 'cv05';
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Subtle paper grain so backgrounds have atmosphere rather than a flat fill. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.4;
+  background-image: radial-gradient(var(--line) 0.5px, transparent 0.5px);
+  background-size: 22px 22px;
+  mask-image: radial-gradient(ellipse at 30% 0%, black, transparent 75%);
+}
+
+/* Editorial small-caps label */
+.eyebrow {
+  font-family: var(--font-sans);
+  font-size: 0.6875rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--faint);
+  font-weight: 600;
+}
+
+/* Tabular figures for any number that lines up in a column */
+.tnum {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Native range slider, themed to the evergreen accent */
+input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 2px;
+  background: var(--line);
+  border-radius: 9999px;
+  cursor: pointer;
+}
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 16px;
+  width: 16px;
+  border-radius: 9999px;
+  background: var(--evergreen);
+  border: 2px solid var(--surface);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+input[type='range']::-moz-range-thumb {
+  height: 16px;
+  width: 16px;
+  border-radius: 9999px;
+  background: var(--evergreen);
+  border: 2px solid var(--surface);
+}
+
+*:focus-visible {
+  outline: 2px solid var(--evergreen);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}
