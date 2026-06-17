@@ -1,19 +1,15 @@
 'use client';
 
+import { useMemo, useState } from 'react';
 import { CartesianGrid, Line, LineChart, Tooltip, XAxis, YAxis } from 'recharts';
 import type { ScenarioResult } from '@/types/planner';
 import { compareScenarios } from '@/lib/analysis';
-import { money } from '@/lib/share';
+import { runScenario } from '@/lib/engine';
+import { csvFilename, MAX_PLANS, money, projectionToCsv, type SavedPlan } from '@/lib/share';
 import { Card, CardHeader } from './ui/card';
 import { AXIS, ChartShell, GRID_STROKE, MoneyTooltip, moneyAxisTick } from './charts/chart-kit';
 
-export interface Snapshot {
-  id: string;
-  name: string;
-  result: ScenarioResult;
-}
-
-const SERIES_COLORS = ['var(--evergreen)', 'var(--maple)', 'var(--gold)', 'var(--c-cpp)', 'var(--c-nonreg)'];
+const SERIES_COLORS = ['var(--evergreen)', 'var(--maple)', 'var(--gold)', 'var(--c-cpp)', 'var(--c-nonreg)', 'var(--c-home)', 'var(--c-bridge)'];
 
 /** Lower-is-better metrics; everything else is higher-is-better. Booleans: true wins. */
 const LOWER_BETTER = new Set(['lifetimeTax']);
@@ -39,20 +35,42 @@ function fmt(metric: string, v: number | boolean | null): string {
   return money(v, { compact: true });
 }
 
+/** Trigger a client-side file download (no server round-trip — the data never leaves the browser). */
+function download(filename: string, text: string, mime = 'text/csv;charset=utf-8'): void {
+  const blob = new Blob([text], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 export function Comparison({
   current,
-  snapshots,
-  onSnapshot,
+  plans,
+  onSave,
+  onLoad,
   onRemove,
   onClear,
 }: {
   current: ScenarioResult;
-  snapshots: Snapshot[];
-  onSnapshot: () => void;
+  plans: SavedPlan[];
+  onSave: (name: string) => void;
+  onLoad: (id: string) => void;
   onRemove: (id: string) => void;
   onClear: () => void;
 }) {
-  const series = [{ id: 'current', name: 'Current plan', result: current }, ...snapshots];
+  const [name, setName] = useState('');
+
+  // Recompute each saved plan's projection for the overlay + diff (cheap for a handful of plans).
+  const saved = useMemo(
+    () => plans.map((p) => ({ id: p.id, name: p.name, result: runScenario(p.household, p.scenario) })),
+    [plans],
+  );
+  const series = [{ id: 'current', name: 'Current plan', result: current }, ...saved];
   const table = compareScenarios(series.map((s) => s.result));
 
   // Merge net-worth-by-age across all series for the overlay chart.
@@ -69,33 +87,60 @@ export function Comparison({
       return point;
     });
 
+  const save = () => {
+    onSave(name.trim() || `Plan ${plans.length + 1}`);
+    setName('');
+  };
+  const full = plans.length >= MAX_PLANS;
+
   return (
     <Card>
       <CardHeader
-        eyebrow="What-if"
-        title="Compare scenarios"
+        eyebrow="Save · compare · export"
+        title="Plan library"
         aside={
           <div className="flex items-center gap-2">
-            {snapshots.length > 0 ? (
-              <button type="button" onClick={onClear} className="text-xs text-faint hover:text-maple">
-                Clear
-              </button>
-            ) : null}
-            <button
-              type="button"
-              onClick={onSnapshot}
-              disabled={snapshots.length >= 4}
-              className="rounded border border-evergreen px-3 py-1 text-xs font-medium text-evergreen hover:bg-evergreen hover:text-paper disabled:opacity-40"
-            >
-              Save current
+            <button type="button" onClick={() => download(csvFilename('retirement plan'), projectionToCsv(current))} className="rounded border border-line px-3 py-1 text-xs font-medium text-muted hover:border-evergreen hover:text-evergreen">
+              Export CSV
+            </button>
+            <button type="button" onClick={() => window.print()} className="rounded border border-line px-3 py-1 text-xs font-medium text-muted hover:border-evergreen hover:text-evergreen">
+              Save as PDF
             </button>
           </div>
         }
       />
       <div className="space-y-4 p-5">
-        {snapshots.length === 0 ? (
+        {/* Save the current plan under a name (persisted on THIS device only). */}
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="min-w-[10rem] flex-1">
+            <span className="mb-1.5 block text-[0.8125rem] font-medium text-muted">Save current plan as</span>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && !full && save()}
+              placeholder={`Plan ${plans.length + 1}`}
+              className="w-full rounded border border-line bg-paper px-2.5 py-1.5 text-sm text-ink outline-none focus:border-evergreen"
+            />
+          </label>
+          <button type="button" onClick={save} disabled={full} className="rounded border border-evergreen bg-evergreen px-3.5 py-2 text-sm font-medium text-paper hover:bg-evergreen-soft disabled:opacity-40">
+            Save
+          </button>
+          {plans.length > 0 ? (
+            <button type="button" onClick={onClear} className="px-2 py-2 text-xs text-faint hover:text-maple">
+              Clear all
+            </button>
+          ) : null}
+        </div>
+        <p className="text-xs text-faint">
+          {full ? `Library full (${MAX_PLANS} max) — remove one to save another. ` : `${plans.length} of ${MAX_PLANS} saved. `}
+          Saved on this device only; nothing leaves your browser.
+        </p>
+
+        {saved.length === 0 ? (
           <p className="text-xs text-faint">
-            Save the current plan, change a lever (CPP age, meltdown, spending…), then save again to overlay them — up to four.
+            Save the current plan, change a lever (CPP age, meltdown, spending, downsize…), then save again to overlay them and
+            compare side by side. Load any saved plan back into the editor with one click.
           </p>
         ) : (
           <>
@@ -105,9 +150,14 @@ export function Comparison({
                   <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: SERIES_COLORS[i % SERIES_COLORS.length] }} />
                   <span className="text-ink">{s.name}</span>
                   {s.id !== 'current' ? (
-                    <button type="button" onClick={() => onRemove(s.id)} className="ml-1 text-faint hover:text-maple" aria-label={`Remove ${s.name}`}>
-                      ✕
-                    </button>
+                    <>
+                      <button type="button" onClick={() => onLoad(s.id)} className="ml-1 rounded px-1 text-evergreen hover:underline" aria-label={`Load ${s.name} into the editor`}>
+                        Load
+                      </button>
+                      <button type="button" onClick={() => onRemove(s.id)} className="text-faint hover:text-maple" aria-label={`Remove ${s.name}`}>
+                        ✕
+                      </button>
+                    </>
                   ) : null}
                 </li>
               ))}

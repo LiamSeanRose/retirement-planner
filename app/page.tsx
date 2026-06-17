@@ -3,11 +3,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Household, Scenario } from '@/types/planner';
 import { runScenario } from '@/lib/engine';
-import { DEFAULT_HOUSEHOLD, DEFAULT_SCENARIO, encodeState, readStateFromUrl, writeStateToUrl } from '@/lib/share';
+import { DEFAULT_HOUSEHOLD, DEFAULT_SCENARIO, encodeState, loadPlans, MAX_PLANS, newPlanId, persistPlans, readStateFromUrl, writeStateToUrl, type SavedPlan } from '@/lib/share';
 import { ScenarioLab } from '@/components/scenario-lab';
 import { AnalyticsPanel } from '@/components/analytics-panel';
 import { OptimizerPanel } from '@/components/optimizer-panel';
-import { Comparison, type Snapshot } from '@/components/comparison';
+import { Comparison } from '@/components/comparison';
 import { EstatePanel } from '@/components/estate-panel';
 import { StressPanel } from '@/components/stress-panel';
 import { HistoricalPanel } from '@/components/historical-panel';
@@ -81,7 +81,8 @@ export default function Page() {
   const [restored, setRestored] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [shared, setShared] = useState(false);
-  const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
+  const [plans, setPlans] = useState<SavedPlan[]>([]);
+  const [plansLoaded, setPlansLoaded] = useState(false);
   const [labOpen, setLabOpen] = useState(true);
 
   // Restore a shared plan from the URL on first mount.
@@ -100,11 +101,27 @@ export default function Page() {
     if (restored) writeStateToUrl({ household, scenario });
   }, [household, scenario, restored]);
 
+  // The saved-plan library lives in localStorage (on this device only): load once, persist on change.
+  useEffect(() => {
+    setPlans(loadPlans());
+    setPlansLoaded(true);
+  }, []);
+  useEffect(() => {
+    if (plansLoaded) persistPlans(plans);
+  }, [plans, plansLoaded]);
+
   const result = useMemo(() => runScenario(household, scenario), [household, scenario]);
   const { result: mc, loading: mcLoading } = useMonteCarlo(household, scenario);
 
-  const saveSnapshot = () =>
-    setSnapshots((prev) => (prev.length >= 4 ? prev : [...prev, { id: `snap-${Date.now()}`, name: `Plan ${prev.length + 1}`, result }]));
+  const savePlan = (name: string) =>
+    setPlans((prev) => (prev.length >= MAX_PLANS ? prev : [...prev, { id: newPlanId(), name, savedAt: Date.now(), household, scenario }]));
+  const loadPlan = (id: string) => {
+    const p = plans.find((x) => x.id === id);
+    if (p) {
+      setHousehold(p.household);
+      setScenario(p.scenario);
+    }
+  };
 
   const onShare = () => {
     const url = `${window.location.origin}${window.location.pathname}#p=${encodeState({ household, scenario })}`;
@@ -144,10 +161,11 @@ export default function Page() {
               <HistoricalPanel household={household} scenario={scenario} />
               <Comparison
                 current={result}
-                snapshots={snapshots}
-                onSnapshot={saveSnapshot}
-                onRemove={(id) => setSnapshots((prev) => prev.filter((s) => s.id !== id))}
-                onClear={() => setSnapshots([])}
+                plans={plans}
+                onSave={savePlan}
+                onLoad={loadPlan}
+                onRemove={(id) => setPlans((prev) => prev.filter((p) => p.id !== id))}
+                onClear={() => setPlans([])}
               />
             </>
           ) : (
