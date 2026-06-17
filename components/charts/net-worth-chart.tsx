@@ -5,6 +5,7 @@ import type { YearRow } from '@/types/planner';
 import { AXIS, ChartShell, GRID_STROKE, MoneyTooltip, moneyAxisTick } from './chart-kit';
 
 const SERIES = [
+  { key: 'home', label: 'Home', color: 'var(--c-home)' },
   { key: 'rrsp', label: 'RRSP / RRIF', color: 'var(--c-reg)' },
   { key: 'lira', label: 'LIRA / LIF', color: 'var(--c-oas)' },
   { key: 'nonReg', label: 'Non-registered', color: 'var(--c-nonreg)' },
@@ -14,6 +15,7 @@ const SERIES = [
 export function NetWorthChart({ rows }: { rows: YearRow[] }) {
   const data = rows.map((r) => ({
     age: r.ageA,
+    home: r.homeValue,
     rrsp: r.balances.rrsp,
     lira: r.balances.lira,
     tfsa: r.balances.tfsa,

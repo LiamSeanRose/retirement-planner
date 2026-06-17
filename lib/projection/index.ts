@@ -230,6 +230,9 @@ export function runProjection(
   const inflationFraction = pctToFraction(scenario.assumptions.inflationPct);
   const withdrawalOrder = scenario.withdrawalOrder ?? DEFAULT_WITHDRAWAL_ORDER;
   const balances = collapseBalances(household.accounts);
+  // Principal residence: an illiquid asset that appreciates on its own track, can be partly/fully sold
+  // via events.homeDownsize (freeing tax-free equity into non-reg), and passes to the estate tax-free.
+  let homeValue = household.home?.currentValue ?? 0;
 
   // Federal one-time 50% unlock at LIF/RLIF creation (modelled at retirement, age 55+): move half the
   // locked-in balance to the RRSP, where it follows the flexible RRSP/RRIF rules (no LIF maximum).
@@ -338,6 +341,19 @@ export function runProjection(
     }
     const guaranteedGross = pension + bridge + cpp + oas + secondCareer + lumpSum + rrifMin + lifMin;
 
+    // --- Home downsize (§ home): free a share of the principal-residence equity into non-reg ---
+    // Proceeds are TAX-FREE (principal-residence exemption) — they add to the non-reg balance with no
+    // tax line, and become spendable this year via the withdrawal loop below. `jan1NonReg` was already
+    // captured, so the proceeds don't generate same-year interest/dividend tax. The unsold remainder
+    // stays a home and keeps appreciating.
+    const dz = scenario.events.homeDownsize;
+    let homeProceeds = 0;
+    if (dz && homeValue > 0 && ageA === dz.atAge) {
+      homeProceeds = homeValue * Math.min(Math.max(dz.releasedEquityPct, 0), 1);
+      homeValue -= homeProceeds;
+      balances.nonReg += homeProceeds;
+    }
+
     // --- Discretionary withdrawals to meet the (gross) spend target, in withdrawal order ---
     let rrifExtra = 0;
     let tfsaWd = 0;
@@ -435,6 +451,9 @@ export function runProjection(
     balances.tfsa = growAccount(balances.tfsa, returnFor('tfsa'));
     balances.nonReg = growAccount(balances.nonReg, returnFor('nonReg'));
     balances.lira = growAccount(balances.lira, returnFor('lira'));
+    // The home appreciates on its own track (defaults to this year's inflation). Net worth stays
+    // LIQUID — the illiquid home is reported separately so a shortfall reflects spendable assets only.
+    homeValue = growAccount(homeValue, pctToFraction(household.home?.appreciationPct ?? conditions.inflationPct));
     const netWorth = balances.rrsp + balances.tfsa + balances.nonReg + balances.lira;
 
     rows.push({
@@ -457,6 +476,7 @@ export function runProjection(
       afterTax,
       filingStatus,
       balances: { rrsp: balances.rrsp, tfsa: balances.tfsa, nonReg: balances.nonReg, lira: balances.lira },
+      homeValue,
       netWorth,
     });
 
@@ -472,22 +492,25 @@ export function runProjection(
   const oasRetained = rows.reduce((s, r) => s + (r.oas - r.oasClawback), 0);
 
   const last = rows[rows.length - 1];
-  const finalBalances = last ? last.balances : { rrsp: 0, tfsa: 0, nonReg: 0 };
+  const finalBalances = last ? last.balances : { rrsp: 0, tfsa: 0, nonReg: 0, lira: 0 };
+  const finalHome = last ? last.homeValue : 0;
   const finalYear = last ? last.year : retirementYear;
-  // Estate after terminal tax at the FINAL death: the registered balance is fully deemed-disposed
-  // (no surviving spouse — couple first-death rollover already happened in-stream), TFSA passes
-  // tax-free, non-reg terminal cap-gains deferred. Equivalent to lib/estate's second-death stage.
+  // Estate after terminal tax at the FINAL death: ALL registered money (RRSP/RRIF + locked-in LIF) is
+  // deemed-disposed (no surviving spouse — couple first-death rollover already happened in-stream),
+  // TFSA passes tax-free, non-reg terminal cap-gains deferred, and the principal residence passes
+  // TAX-FREE (no deemed-disposition gain). Equivalent to lib/estate's second-death stage.
+  const registeredAtDeath = finalBalances.rrsp + finalBalances.lira;
   const terminalFactor = Math.pow(1 + inflationFraction, Math.max(0, rows.length - 1)); // brackets indexed to the final year
   const terminalTax = computeTax({
     province: household.province,
     year: finalYear,
     age: endAge,
-    taxableIncome: finalBalances.rrsp,
+    taxableIncome: registeredAtDeath,
     pensionIncome: 0,
     filingStatus: 'single',
     bracketIndexFactor: terminalFactor,
   });
-  const estateValue = finalBalances.rrsp - terminalTax + finalBalances.tfsa + finalBalances.nonReg;
+  const estateValue = registeredAtDeath - terminalTax + finalBalances.tfsa + finalBalances.nonReg + finalHome;
 
   const reductionPct = isCouple
     ? { memberA: plans[0].reductionPct, memberB: plans[1].reductionPct }

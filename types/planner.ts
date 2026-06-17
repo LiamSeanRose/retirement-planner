@@ -57,11 +57,28 @@ export interface Account {
   riskProfile: { expectedReturn: number; volatility: number };
 }
 
+/** Principal residence (or other real estate the household owns through retirement). */
+export interface Home {
+  /** Market value at retirement. */
+  currentValue: number;
+  /**
+   * Annual appreciation %. Omitted ⇒ the home tracks the year's inflation (a conservative real-terms-
+   * flat assumption). Property is held free and clear — no mortgage is modelled (typical at retirement).
+   */
+  appreciationPct?: number;
+}
+
 export interface Household {
   province: Province; // drives the cross-provincial tax matrix (§7)
   memberA: Member;
   memberB?: Member; // omit for single mode; enables splitting + survivor logic
   accounts: Account[]; // owner-tagged, unlimited count
+  /**
+   * Principal residence. Appreciates on its own track, is NOT a liquid account (never drawn for
+   * spending unless sold via `events.homeDownsize`), and passes to the estate TAX-FREE — the
+   * principal-residence exemption means no deemed-disposition capital gain at death. Omit if renting.
+   */
+  home?: Home;
 }
 
 /** Scenario toggles — the levers the "Scenario Lab" exposes (§18, §21). */
@@ -108,6 +125,13 @@ export interface Scenario {
     secondCareerIncome?: { member: 'memberA' | 'memberB'; annualAmount: number; startAge: number; endAge: number };
     /** Triggers the survivor rule (§19) — couple mode. */
     earlyMortality?: { member: 'memberA' | 'memberB'; atAge: number };
+    /**
+     * Downsize or sell the principal residence at a chosen age: free a share of the (tax-free,
+     * principal-residence) equity into non-registered savings, where the drawdown can spend it. The
+     * unreleased remainder stays as a home and keeps appreciating. `releasedEquityPct` ∈ [0,1]
+     * (1 = sell outright and rent; ~0.3–0.5 = a typical downsize).
+     */
+    homeDownsize?: { atAge: number; releasedEquityPct: number };
   };
 }
 
@@ -132,7 +156,9 @@ export interface YearRow {
   afterTax: number; // spendable cash after tax and clawback
   filingStatus: 'couple' | 'single'; // flips on the survivor transition (§19)
   balances: Record<AccountType, number>;
-  netWorth: number;
+  /** Principal-residence value this year (0 when no home). Separate from `netWorth` (liquid only). */
+  homeValue: number;
+  netWorth: number; // LIQUID financial net worth (the four accounts); excludes the illiquid home
 }
 
 export interface PercentileBand {
