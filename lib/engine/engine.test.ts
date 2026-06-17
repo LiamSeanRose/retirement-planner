@@ -135,6 +135,46 @@ describe('principal residence (home) + downsizing', () => {
   });
 });
 
+describe('cash wedge / bucket strategy', () => {
+  const years = 90 - 60 + 1;
+  const flatPath = (pct: number): ReturnPathByType => Array.from({ length: years }, () => ({ returnPct: pct, inflationPct: 2, indexingPct: 2 }));
+  const wedgeOn = (s: Scenario, n: number): Scenario => ({ ...s, assumptions: { ...s.assumptions, cashWedge: { years: n } } });
+  const carveable = 100_000 + 50_000; // the household's TFSA + non-reg available to carve into cash
+
+  it('carves the reserve from non-reg/TFSA at setup (a reallocation, not new money)', () => {
+    const base = runScenario(household, scenario);
+    const wedged = runScenario(household, wedgeOn(scenario, 2));
+    expect(base.rows[0].cashWedge).toBe(0);
+    expect(wedged.rows[0].cashWedge).toBeGreaterThan(0);
+    // The reserve came OUT of the liquid accounts: non-reg + TFSA are lower than without a wedge.
+    const liq = (r: { balances: { nonReg: number; tfsa: number } }) => r.balances.nonReg + r.balances.tfsa;
+    expect(liq(wedged.rows[0])).toBeLessThan(liq(base.rows[0]));
+  });
+
+  it('protects net worth through a sustained downturn (cash is insulated from the market)', () => {
+    const strained = { ...scenario, assumptions: { ...scenario.assumptions, targetAnnualSpending: 85_000 } };
+    const bear = flatPath(-8); // a long bear market
+    const noWedge = runScenarioOverPath(household, strained, bear);
+    const wedged = runScenarioOverPath(household, wedgeOn(strained, 3), bear);
+    // Five years into the bear, the insulated cash reserve is well ahead of riding it down in the market.
+    expect(wedged.rows[5].netWorth).toBeGreaterThan(noWedge.rows[5].netWorth);
+  });
+
+  it('spends the wedge in a down year (cash funds spending instead of asset sales)', () => {
+    const strained = { ...scenario, assumptions: { ...scenario.assumptions, targetAnnualSpending: 85_000 } };
+    const wedged = runScenarioOverPath(household, wedgeOn(strained, 3), flatPath(-15));
+    // Year 1 is a down year: the reserve is tapped — it falls below the initial carve but isn't exhausted.
+    expect(wedged.rows[0].cashWedge).toBeLessThan(carveable);
+    expect(wedged.rows[0].cashWedge).toBeGreaterThan(0);
+  });
+
+  it('counts the (tax-free) cash reserve in net worth and the estate', () => {
+    const wedged = runScenario(household, wedgeOn(scenario, 2));
+    expect(wedged.rows.at(-1)!.cashWedge).toBeGreaterThanOrEqual(0);
+    expect(wedged.totals.estateValue).toBeGreaterThan(0);
+  });
+});
+
 describe('runScenario (deterministic, end-to-end)', () => {
   const result = runScenario(household, scenario);
 

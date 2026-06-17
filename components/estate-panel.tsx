@@ -24,6 +24,7 @@ export function EstatePanel({ household, scenario, result }: { household: Househ
   const data = useMemo(() => {
     const final = result.rows.at(-1)?.balances ?? { rrsp: 0, tfsa: 0, nonReg: 0, lira: 0 };
     const home = result.rows.at(-1)?.homeValue ?? 0; // principal residence — passes tax-free
+    const cash = result.rows.at(-1)?.cashWedge ?? 0; // cash wedge — passes tax-free (no embedded gain)
     const endAge = result.rows.at(-1)?.ageA ?? scenario.assumptions.endAge;
     // LIRA/LIF is registered: it joins the deemed disposition at death, like RRSP/RRIF.
     const balances: EstateBalances = { registered: final.rrsp + final.lira, nonRegistered: final.nonReg, tfsa: final.tfsa };
@@ -40,7 +41,7 @@ export function EstatePanel({ household, scenario, result }: { household: Househ
     const meltdown = runScenario(household, { ...scenario, withdrawalOrder: ['rrsp', 'nonReg', 'tfsa'] }).totals.estateValue;
     const preserve = runScenario(household, { ...scenario, withdrawalOrder: ['nonReg', 'tfsa', 'rrsp'] }).totals.estateValue;
 
-    return { balances, totalBalances, gain, noSpouseTax, couple, endAge, meltdown, preserve, home };
+    return { balances, totalBalances, gain, noSpouseTax, couple, endAge, meltdown, preserve, home, cash };
   }, [household, scenario, result]);
 
   return (
@@ -52,13 +53,14 @@ export function EstatePanel({ household, scenario, result }: { household: Househ
           <Line label="RRSP / RRIF — deemed disposition" value={money(data.balances.registered)} />
           <Line label={`Non-registered gain (≈${Math.round(ASSUMED_GAIN_FRACTION * 100)}% of balance)`} value={money(data.gain)} tone="faint" />
           <Line label="TFSA — passes tax-free" value={money(data.balances.tfsa)} tone="evergreen" />
+          {data.cash > 0 ? <Line label="Cash wedge — passes tax-free" value={money(data.cash)} tone="evergreen" /> : null}
           {data.home > 0 ? <Line label="Home — passes tax-free (principal residence)" value={money(data.home)} tone="evergreen" /> : null}
           <Line label="Terminal tax" value={`− ${money(data.noSpouseTax)}`} tone="maple" />
-          <Line label="After-tax estate" value={money(data.totalBalances - data.noSpouseTax + data.home)} strong tone="evergreen" />
+          <Line label="After-tax estate" value={money(data.totalBalances - data.noSpouseTax + data.home + data.cash)} strong tone="evergreen" />
         </div>
         <div>
           <p className="eyebrow mb-2">The levers</p>
-          <Line label="If a spouse survives (full rollover)" value={money(data.totalBalances + data.home)} tone="evergreen" />
+          <Line label="If a spouse survives (full rollover)" value={money(data.totalBalances + data.home + data.cash)} tone="evergreen" />
           {data.couple ? (
             <>
               <Line label="First death — rolls to survivor" value={`tax ${money(data.couple.firstDeath.terminalTax)}`} tone="faint" />

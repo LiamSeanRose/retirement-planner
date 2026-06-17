@@ -77,6 +77,12 @@ export interface NonRegisteredConfig {
   eligibleDividendYield: number;
 }
 
+/** Cash-wedge / bucket-strategy assumptions (re-verify yearly). */
+export interface CashWedgeConfig {
+  /** Annual return on the cash reserve (HISA / short GIC / T-bill), fully taxable as interest. Insulated from the market — it does NOT move with the return path, which is the point of holding it. */
+  returnPct: number;
+}
+
 export interface YearConfig {
   /** Human-readable "rules current as of" stamp to surface in-app. */
   asOf: string;
@@ -85,6 +91,7 @@ export interface YearConfig {
   cpp: CppConfig;
   oas: OasConfig;
   nonRegistered: NonRegisteredConfig;
+  cashWedge: CashWedgeConfig;
 }
 
 // YMPE history used to derive the 2026 AMPE (5-yr average of YMPE 2022-2026):
@@ -128,5 +135,8 @@ export const CONFIG_2026: YearConfig = {
     unrealizedGainFraction: 0.5, // ~half of a long-held non-reg balance is embedded gain
     interestYield: 0.01, // ~1% interest/distributions taxed in full each year
     eligibleDividendYield: 0.02, // ~2% eligible dividends each year (grossed up in the tax engine)
+  },
+  cashWedge: {
+    returnPct: 2.75, // ~2026 high-interest-savings / short-GIC rate — a real cash return, not market-linked
   },
 };

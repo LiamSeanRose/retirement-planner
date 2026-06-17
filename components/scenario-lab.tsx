@@ -246,6 +246,16 @@ export function ScenarioLab({
               </>
             ) : null}
           </Toggle>
+          <Toggle
+            label="Cash wedge (bucket strategy)"
+            description="Hold N years of spending in cash, carved from non-reg/TFSA. Spent first in down-market years so investments aren't sold at a loss — sequence-of-returns defence."
+            checked={!!a.cashWedge}
+            onChange={(on) => setAssumptions({ cashWedge: on ? { years: 2 } : undefined })}
+          >
+            {a.cashWedge ? (
+              <RangeField label="Years of spending in cash" value={a.cashWedge.years} min={1} max={5} onChange={(v) => setAssumptions({ cashWedge: { years: v } })} format={(v) => `${v} yr${v > 1 ? 's' : ''}`} />
+            ) : null}
+          </Toggle>
           <div className="grid grid-cols-3 gap-3">
             <RangeField label="Inflation" value={a.inflationPct} min={0} max={6} step={0.1} onChange={(v) => setAssumptions({ inflationPct: v })} format={(v) => `${v.toFixed(1)}%`} />
             <RangeField label="Indexing" value={a.indexingPct} min={0} max={6} step={0.1} onChange={(v) => setAssumptions({ indexingPct: v })} format={(v) => `${v.toFixed(1)}%`} />
