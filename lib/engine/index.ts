@@ -112,12 +112,17 @@ export function runScenarioOverPath(
  * TYPE (independent draws from each type's Normal(meanPct, volPct)) and we run the real projection
  * over it. Returns the canonical §12 `MonteCarloResult` with net-worth AND after-tax fan-chart bands
  * (0-based year bands relabelled to ages). Reproducible under a fixed `seed`.
+ *
+ * `correlation` ∈ [0, 1] (optional, default 0) links the per-account return draws via a shared
+ * market factor, so a market-wide down year hits accounts together (fatter tail risk). 0 keeps the
+ * prior independent-draw behaviour exactly. Appended last to keep the public signature additive.
  */
 export function runMonteCarloScenario(
   household: Household,
   scenario: Scenario,
   seed = 0,
   config: YearConfig = DEFAULT_CONFIG,
+  correlation = 0,
 ): MonteCarloResult {
   const retirementAge = household.memberA.targetRetirementAge;
   const years = projectionYears(household, scenario);
@@ -139,6 +144,7 @@ export function runMonteCarloScenario(
     runs: scenario.assumptions.runs,
     seed,
     distributionByType,
+    correlation,
     assumptions: { inflationPct: scenario.assumptions.inflationPct, indexingPct: scenario.assumptions.indexingPct },
   });
 

@@ -18,10 +18,10 @@ describe('config sanity', () => {
       expect(TAX_CONFIG_2026.provinces[p].brackets.length).toBeGreaterThan(0);
     }
   });
-  it('only Ontario + federal are marked verified; others are flagged for confirmation', () => {
-    expect(TAX_CONFIG_2026.provinces.ON.verified).toBe(true);
-    for (const p of ALL.filter((x) => x !== 'ON')) {
-      expect(TAX_CONFIG_2026.provinces[p].verified).toBe(false);
+  it('ON, BC, AB are verified for 2026; the rest are flagged for confirmation', () => {
+    const verified = ['ON', 'BC', 'AB'];
+    for (const p of ALL) {
+      expect(TAX_CONFIG_2026.provinces[p].verified).toBe(verified.includes(p));
     }
   });
 });
