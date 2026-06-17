@@ -18,6 +18,14 @@
 
 import { createRng, type Rng } from '../rng';
 import { sampledPath, type ReturnPath } from '../paths';
+import type { ReturnPathByType, YearReturns } from '../../types/planner';
+
+/** Per-account-type return distributions (percent), for per-account stochastic sampling. */
+export interface DistributionByType {
+  rrsp: { meanPct: number; volPct: number };
+  tfsa: { meanPct: number; volPct: number };
+  nonReg: { meanPct: number; volPct: number };
+}
 
 /** Default number of sampled runs (plan §8: ~1,000). */
 const DEFAULT_RUNS = 1000;
@@ -34,6 +42,8 @@ export interface RunOutcome {
   estateValue: number;
   /** Total lifetime tax paid over the run. */
   lifetimeTax: number;
+  /** After-tax (spendable) income per projected year — optional; drives the after-tax fan chart. */
+  afterTaxByYear?: number[];
 }
 
 /**
@@ -53,6 +63,12 @@ export interface MonteCarloOpts {
   seed?: number;
   /** Parametric return model: annual return ~ Normal(meanPct, volPct). Omitted ⇒ degenerate 0/0. */
   distribution?: { meanPct: number; volPct: number };
+  /**
+   * Per-account-type return model. When present, each year draws an INDEPENDENT return per account
+   * type (correlation is a later refinement) and the path carries them as `returnByType`; the
+   * single `distribution` is then unused. Omitted ⇒ the single-`distribution` path.
+   */
+  distributionByType?: DistributionByType;
   /** Inflation/indexing held flat across every sampled path (only returns are sampled). Default 0/0. */
   assumptions?: { inflationPct?: number; indexingPct?: number };
 }
@@ -86,6 +102,8 @@ export interface MonteCarloResult {
   probabilityOfSuccess: number;
   /** Net-worth percentile bands (p5/p25/p50/p75/p95), one entry per projected year. */
   netWorth: PercentileBand[];
+  /** After-tax-income percentile bands per year — empty unless every run reported an after-tax series. */
+  afterTax: PercentileBand[];
   /** Estate-value distribution across runs. */
   estateValue: Distribution;
   /** Lifetime-tax distribution across runs. */
@@ -114,6 +132,31 @@ function mean(xs: number[]): number {
   return sum / xs.length;
 }
 
+/**
+ * Per-year percentile bands across runs. `seriesByRun[r][t]` is run r's value in year t. Uses the
+ * shortest series so indexing stays in-bounds (guards a ragged injected run); never mutates inputs.
+ */
+function toBands(seriesByRun: number[][]): PercentileBand[] {
+  let n = 0;
+  if (seriesByRun.length > 0) {
+    n = seriesByRun[0].length;
+    for (const s of seriesByRun) n = Math.min(n, s.length);
+  }
+  const out: PercentileBand[] = new Array(n);
+  for (let t = 0; t < n; t++) {
+    const col = seriesByRun.map((s) => s[t]).sort((a, b) => a - b);
+    out[t] = {
+      year: t,
+      p5: percentile(col, 0.05),
+      p25: percentile(col, 0.25),
+      p50: percentile(col, 0.5),
+      p75: percentile(col, 0.75),
+      p95: percentile(col, 0.95),
+    };
+  }
+  return out;
+}
+
 /** p5/p50/p95 + mean of a scalar series. Sorts a copy — never mutates the input. */
 function summarize(values: number[]): Distribution {
   const sorted = [...values].sort((a, b) => a - b);
@@ -140,11 +183,26 @@ export function runMonteCarlo(makeRun: MakeRun, opts: MonteCarloOpts): MonteCarl
   const indexingPct = opts.assumptions?.indexingPct ?? 0;
 
   const rng = createRng(seed);
+  const dByType = opts.distributionByType;
+
+  // One sampled path: per-account-type returns when configured, otherwise a single market return.
+  // `YearReturns[]` is assignable to `ReturnPath`; the extra `returnByType` rides through to the
+  // projection, which reads it when present.
+  const samplePath = (): ReturnPath => {
+    if (!dByType) return sampledPath(years, () => rng.normal(meanPct, volPct), { inflationPct, indexingPct });
+    const path: YearReturns[] = new Array(years);
+    for (let i = 0; i < years; i++) {
+      const rrsp = rng.normal(dByType.rrsp.meanPct, dByType.rrsp.volPct);
+      const tfsa = rng.normal(dByType.tfsa.meanPct, dByType.tfsa.volPct);
+      const nonReg = rng.normal(dByType.nonReg.meanPct, dByType.nonReg.volPct);
+      path[i] = { returnPct: (rrsp + tfsa + nonReg) / 3, inflationPct, indexingPct, returnByType: { rrsp, tfsa, nonReg } };
+    }
+    return path;
+  };
 
   const outcomes: RunOutcome[] = new Array(runs);
   for (let r = 0; r < runs; r++) {
-    const path = sampledPath(years, () => rng.normal(meanPct, volPct), { inflationPct, indexingPct });
-    outcomes[r] = makeRun(path, rng);
+    outcomes[r] = makeRun(samplePath(), rng);
   }
 
   // Probability of success = share of runs that lasted to the end age.
@@ -152,30 +210,18 @@ export function runMonteCarlo(makeRun: MakeRun, opts: MonteCarloOpts): MonteCarl
   for (const o of outcomes) if (o.lastsToEndAge) successes++;
   const probabilityOfSuccess = runs === 0 ? 0 : successes / runs;
 
-  // Net-worth bands per year. Use the shortest series so indexing stays in-bounds (every series is
-  // `years` long in practice; this just guards a ragged injected run).
-  let bandYears = 0;
-  if (outcomes.length > 0) {
-    bandYears = outcomes[0].netWorthByYear.length;
-    for (const o of outcomes) bandYears = Math.min(bandYears, o.netWorthByYear.length);
-  }
-  const netWorth: PercentileBand[] = new Array(bandYears);
-  for (let t = 0; t < bandYears; t++) {
-    const column = outcomes.map((o) => o.netWorthByYear[t]).sort((a, b) => a - b);
-    netWorth[t] = {
-      year: t,
-      p5: percentile(column, 0.05),
-      p25: percentile(column, 0.25),
-      p50: percentile(column, 0.5),
-      p75: percentile(column, 0.75),
-      p95: percentile(column, 0.95),
-    };
-  }
+  const netWorth = toBands(outcomes.map((o) => o.netWorthByYear));
+  // After-tax bands only when EVERY run reported an after-tax series (otherwise leave empty).
+  const afterTax =
+    outcomes.length > 0 && outcomes.every((o) => o.afterTaxByYear !== undefined)
+      ? toBands(outcomes.map((o) => o.afterTaxByYear as number[]))
+      : [];
 
   return {
     runs,
     probabilityOfSuccess,
     netWorth,
+    afterTax,
     estateValue: summarize(outcomes.map((o) => o.estateValue)),
     lifetimeTax: summarize(outcomes.map((o) => o.lifetimeTax)),
   };
