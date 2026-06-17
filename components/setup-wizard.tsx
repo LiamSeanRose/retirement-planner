@@ -2,8 +2,44 @@
 
 import { useEffect, useState } from 'react';
 import type { Household, Province, Scenario } from '@/types/planner';
-import { buildPlanFromAnswers, money, WIZARD_DEFAULTS, type WizardAnswers } from '@/lib/share';
+import { buildPlanFromAnswers, extractCppEstimate, money, WIZARD_DEFAULTS, type CppExtraction, type WizardAnswers } from '@/lib/share';
 import { NumberField, RangeField, SelectField, Segmented, Toggle } from './ui/controls';
+
+/** Private, in-browser import: paste the Service Canada estimate text and pull out the age-65 figure. */
+function CppPasteImporter({ onUse }: { onUse: (amount: number) => void }) {
+  const [text, setText] = useState('');
+  const [found, setFound] = useState<CppExtraction | null>(null);
+  const [applied, setApplied] = useState<number | null>(null);
+  return (
+    <details className="rounded border border-line bg-paper/60 p-3 text-xs">
+      <summary className="cursor-pointer select-none font-medium text-evergreen">Paste from your Service Canada estimate</summary>
+      <div className="mt-2 space-y-2">
+        <textarea
+          value={text}
+          onChange={(e) => { setText(e.target.value); setFound(null); setApplied(null); }}
+          rows={3}
+          placeholder="Copy the estimate text from My Service Canada Account (or your statement PDF) and paste it here…"
+          className="w-full rounded border border-line bg-paper px-2.5 py-1.5 text-sm text-ink outline-none focus:border-evergreen"
+        />
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="button" onClick={() => setFound(extractCppEstimate(text))} disabled={!text.trim()} className="rounded border border-evergreen px-3 py-1 font-medium text-evergreen hover:bg-evergreen hover:text-paper disabled:opacity-40">
+            Find my CPP
+          </button>
+          {found?.monthlyAt65 ? (
+            <button type="button" onClick={() => { const v = Math.round(found.monthlyAt65!); onUse(v); setApplied(v); }} className="rounded border border-evergreen bg-evergreen px-3 py-1 font-medium text-paper hover:bg-evergreen-soft">
+              Use ${Math.round(found.monthlyAt65).toLocaleString('en-CA')}/mo
+            </button>
+          ) : null}
+          {applied !== null ? <span className="text-evergreen">Applied ✓</span> : null}
+        </div>
+        {found && !found.monthlyAt65 ? (
+          <p className="text-faint">{found.candidates.length ? 'Found amounts but couldn’t tell which is the age-65 figure — enter it above.' : 'Couldn’t find a monthly amount — paste the estimate text, or just type it above.'}</p>
+        ) : null}
+        <p className="text-faint">Processed entirely in your browser — nothing is uploaded or sent anywhere.</p>
+      </div>
+    </details>
+  );
+}
 
 const PROVINCES: { value: Province; label: string }[] = [
   ['ON', 'Ontario'], ['QC', 'Quebec'], ['BC', 'British Columbia'], ['AB', 'Alberta'], ['MB', 'Manitoba'],
@@ -102,6 +138,7 @@ export function SetupWizard({
                 <a href="https://www.canada.ca/en/employment-social-development/services/my-account.html" target="_blank" rel="noopener noreferrer" className="text-evergreen underline decoration-line underline-offset-2 hover:decoration-evergreen">My Service Canada Account</a>{' '}
                 → “View my benefit estimates.” Not sure? ~$1,100/mo is a reasonable middle estimate; the 2026 maximum is $1,508. OAS is added automatically.
               </p>
+              <CppPasteImporter onUse={(v) => set({ cppAt65: v })} />
             </>
           )}
 
