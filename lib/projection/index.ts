@@ -380,6 +380,14 @@ export function runProjection(
       balances.nonReg += homeProceeds;
     }
 
+    // --- Windfall / inheritance: a TAX-FREE lump inflow (year-0 $ grown to nominal) into non-reg, where
+    // the drawdown can spend it. Like the downsize proceeds, `jan1NonReg` was already captured, so it
+    // generates no same-year investment-income tax. (A Canadian inheritance is not taxable income.) ---
+    const wf = scenario.events.windfall;
+    if (wf && ageA === wf.atAge) {
+      balances.nonReg += Math.max(0, wf.amount) * bracketIndexFactor;
+    }
+
     // --- Discretionary withdrawals to meet the (gross) spend target, in withdrawal order ---
     let rrifExtra = 0;
     let tfsaWd = 0;
@@ -388,7 +396,14 @@ export function runProjection(
     // "Go-go / slow-go / no-go" spending: scale the inflation-grown base by the member's life phase.
     const sp = scenario.assumptions.spendingPhases;
     const phaseMult = sp ? (ageA >= sp.noGoAge ? sp.noGoPct : ageA >= sp.slowGoAge ? sp.slowGoPct : 1) : 1;
-    let need = Math.max(0, spendTarget * phaseMult - guaranteedGross);
+    // "If this happens" EXTRA outflows this year (year-0 $ grown to nominal), ON TOP of regular spending:
+    // long-term care (recurring, in its window) and a one-time large expense.
+    const ltc = scenario.events.longTermCare;
+    const ltcThisYear = ltc && ageA >= ltc.startAge && ageA < ltc.startAge + Math.max(0, ltc.years) ? Math.max(0, ltc.annualAmount) * bracketIndexFactor : 0;
+    const oneTime = scenario.events.oneTimeExpense;
+    const oneTimeThisYear = oneTime && ageA === oneTime.atAge ? Math.max(0, oneTime.amount) * bracketIndexFactor : 0;
+    const extraSpend = ltcThisYear + oneTimeThisYear;
+    let need = Math.max(0, spendTarget * phaseMult + extraSpend - guaranteedGross);
     // Cash-wedge: in a DOWN year, spend the (tax-free) cash reserve FIRST so the volatile accounts
     // aren't sold at a loss — the sequence-of-returns defence. In up years it's left intact and tapped
     // only as a last resort below.

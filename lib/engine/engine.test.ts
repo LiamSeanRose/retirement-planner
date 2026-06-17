@@ -73,6 +73,48 @@ describe('LIRA / LIF (locked-in PSPP transfer value)', () => {
   });
 });
 
+describe('"if this happens" life events (long-term care, one-time expense, windfall)', () => {
+  const base = runScenario(household, scenario);
+  const withEvents = (events: Partial<Scenario['events']>): Scenario => ({ ...scenario, events: { ...scenario.events, ...events } });
+  const discDraw = (res: typeof base, age: number) => {
+    const r = res.rows.find((x) => x.ageA === age)!;
+    return r.rrifExtra + r.tfsaWd + r.nonRegInc;
+  };
+
+  it('long-term care erodes the estate and forces bigger draws in the care years', () => {
+    const ltc = runScenario(household, withEvents({ longTermCare: { startAge: 82, annualAmount: 70_000, years: 4 } }));
+    expect(ltc.totals.estateValue).toBeLessThan(base.totals.estateValue);
+    expect(discDraw(ltc, 83)).toBeGreaterThan(discDraw(base, 83)); // the care cost is funded by extra drawdown
+  });
+
+  it('a one-time large expense lowers the estate', () => {
+    const expense = runScenario(household, withEvents({ oneTimeExpense: { atAge: 75, amount: 60_000 } }));
+    expect(expense.totals.estateValue).toBeLessThan(base.totals.estateValue);
+    expect(discDraw(expense, 75)).toBeGreaterThan(discDraw(base, 75));
+  });
+
+  it('a windfall is received TAX-FREE, lifts net worth at receipt, and grows the estate', () => {
+    const at = 70;
+    const wf = runScenario(household, withEvents({ windfall: { atAge: at, amount: 150_000 } }));
+    expect(wf.totals.estateValue).toBeGreaterThan(base.totals.estateValue);
+    const wYear = wf.rows.find((r) => r.ageA === at)!;
+    const bYear = base.rows.find((r) => r.ageA === at)!;
+    expect(wYear.tax).toBeCloseTo(bYear.tax, 6); // tax-free receipt — no income-tax spike in the windfall year
+    expect(wYear.netWorth).toBeGreaterThan(bYear.netWorth + 100_000); // the inflow landed in non-reg
+  });
+
+  it('amounts are inflation-grown (a later windfall lands more nominal dollars)', () => {
+    // The windfall's contribution to net worth at receipt = the same year-0 amount grown to that year.
+    const contribution = (atAge: number) => {
+      const wf = runScenario(household, withEvents({ windfall: { atAge, amount: 100_000 } }));
+      const at = wf.rows.find((r) => r.ageA === atAge)!.netWorth;
+      const baseAt = base.rows.find((r) => r.ageA === atAge)!.netWorth;
+      return at - baseAt;
+    };
+    expect(contribution(85)).toBeGreaterThan(contribution(65)); // later receipt ⇒ more inflated dollars
+  });
+});
+
 describe('variable spending phases (go-go / slow-go / no-go)', () => {
   const spend = { ...scenario, assumptions: { ...scenario.assumptions, targetAnnualSpending: 80_000 } };
   const flat = runScenario(household, spend);

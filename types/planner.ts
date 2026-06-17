@@ -139,6 +139,25 @@ export interface Scenario {
      * (1 = sell outright and rent; ~0.3–0.5 = a typical downsize).
      */
     homeDownsize?: { atAge: number; releasedEquityPct: number };
+
+    // --- "If this happens" life-event contingencies (amounts in year-0 dollars, grown by inflation) ---
+    /**
+     * Long-term care: a recurring EXTRA expense on top of regular spending, from `startAge` for
+     * `years` (e.g. $75k/yr from 85 for 4 years). The single biggest late-life estate eroder — model
+     * it to see whether the plan absorbs it.
+     */
+    longTermCare?: { startAge: number; annualAmount: number; years: number };
+    /**
+     * A one-time large expense at `atAge` — a big purchase, a new roof/car, a milestone trip, or
+     * helping a child buy a home. Funded by drawdown in that year.
+     */
+    oneTimeExpense?: { atAge: number; amount: number };
+    /**
+     * A windfall / inheritance received TAX-FREE at `atAge` (a Canadian inheritance is not taxable
+     * income), deposited into non-registered savings. Best treated as upside — "plan as if it won't
+     * come; if it does, it's a bonus."
+     */
+    windfall?: { atAge: number; amount: number };
   };
 }
 

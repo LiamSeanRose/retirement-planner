@@ -296,6 +296,38 @@ export function ScenarioLab({
               <RangeField label="Age at death" value={ev.earlyMortality.atAge} min={65} max={95} onChange={(v) => setEvents({ earlyMortality: { ...ev.earlyMortality!, atAge: v } })} format={(v) => `age ${v}`} />
             ) : null}
           </Toggle>
+
+          <p className="eyebrow pt-1">If this happens…</p>
+
+          <Toggle label="Long-term care costs" description="A recurring late-life care expense on top of regular spending — the biggest estate eroder. Does the plan absorb it?" checked={!!ev.longTermCare} onChange={(on) => setEvents({ longTermCare: on ? { startAge: 85, annualAmount: 75_000, years: 4 } : undefined })}>
+            {ev.longTermCare ? (
+              <>
+                <NumberField label="Annual care cost (today's $)" value={ev.longTermCare.annualAmount} onChange={(v) => setEvents({ longTermCare: { ...ev.longTermCare!, annualAmount: v } })} prefix="$" step={5_000} />
+                <div className="grid grid-cols-2 gap-3">
+                  <RangeField label="Starting at" value={ev.longTermCare.startAge} min={retireAge} max={a.endAge} onChange={(v) => setEvents({ longTermCare: { ...ev.longTermCare!, startAge: v } })} format={(v) => `age ${v}`} />
+                  <RangeField label="For" value={ev.longTermCare.years} min={1} max={15} onChange={(v) => setEvents({ longTermCare: { ...ev.longTermCare!, years: v } })} format={(v) => `${v} yr${v > 1 ? 's' : ''}`} />
+                </div>
+              </>
+            ) : null}
+          </Toggle>
+
+          <Toggle label="One-time large expense" description="A big purchase, a new roof or car, a milestone trip, or helping a child buy a home." checked={!!ev.oneTimeExpense} onChange={(on) => setEvents({ oneTimeExpense: on ? { atAge: retireAge + 10, amount: 50_000 } : undefined })}>
+            {ev.oneTimeExpense ? (
+              <>
+                <NumberField label="Amount (today's $)" value={ev.oneTimeExpense.amount} onChange={(v) => setEvents({ oneTimeExpense: { ...ev.oneTimeExpense!, amount: v } })} prefix="$" step={5_000} />
+                <RangeField label="At age" value={ev.oneTimeExpense.atAge} min={retireAge} max={a.endAge} onChange={(v) => setEvents({ oneTimeExpense: { ...ev.oneTimeExpense!, atAge: v } })} format={(v) => `age ${v}`} />
+              </>
+            ) : null}
+          </Toggle>
+
+          <Toggle label="Windfall / inheritance" description="A tax-free lump sum received at a chosen age. Treat it as upside — plan as if it won't come; if it does, it's a bonus." checked={!!ev.windfall} onChange={(on) => setEvents({ windfall: on ? { atAge: retireAge + 10, amount: 150_000 } : undefined })}>
+            {ev.windfall ? (
+              <>
+                <NumberField label="Amount (today's $)" value={ev.windfall.amount} onChange={(v) => setEvents({ windfall: { ...ev.windfall!, amount: v } })} prefix="$" step={10_000} />
+                <RangeField label="At age" value={ev.windfall.atAge} min={retireAge} max={a.endAge} onChange={(v) => setEvents({ windfall: { ...ev.windfall!, atAge: v } })} format={(v) => `age ${v}`} />
+              </>
+            ) : null}
+          </Toggle>
         </div>
       </Card>
     </div>
