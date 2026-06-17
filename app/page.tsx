@@ -6,6 +6,8 @@ import { runScenario } from '@/lib/engine';
 import { DEFAULT_HOUSEHOLD, DEFAULT_SCENARIO, encodeState, readStateFromUrl, writeStateToUrl } from '@/lib/share';
 import { ScenarioLab } from '@/components/scenario-lab';
 import { AnalyticsPanel } from '@/components/analytics-panel';
+import { OptimizerPanel } from '@/components/optimizer-panel';
+import { Comparison, type Snapshot } from '@/components/comparison';
 import { useMonteCarlo } from '@/components/use-monte-carlo';
 
 const RULES_AS_OF = '2026';
@@ -74,6 +76,7 @@ export default function Page() {
   const [restored, setRestored] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [shared, setShared] = useState(false);
+  const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
 
   // Restore a shared plan from the URL on first mount.
   useEffect(() => {
@@ -94,6 +97,9 @@ export default function Page() {
   const result = useMemo(() => runScenario(household, scenario), [household, scenario]);
   const { result: mc, loading: mcLoading } = useMonteCarlo(household, scenario);
 
+  const saveSnapshot = () =>
+    setSnapshots((prev) => (prev.length >= 4 ? prev : [...prev, { id: `snap-${Date.now()}`, name: `Plan ${prev.length + 1}`, result }]));
+
   const onShare = () => {
     const url = `${window.location.origin}${window.location.pathname}#p=${encodeState({ household, scenario })}`;
     navigator.clipboard?.writeText(url).then(
@@ -112,7 +118,23 @@ export default function Page() {
         <aside className="lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:self-start lg:overflow-y-auto lg:pr-1">
           <ScenarioLab household={household} scenario={scenario} onHousehold={setHousehold} onScenario={setScenario} />
         </aside>
-        <main>{mounted ? <AnalyticsPanel result={result} mc={mc} mcLoading={mcLoading} /> : <Skeleton />}</main>
+        <main className="space-y-5">
+          {mounted ? (
+            <>
+              <AnalyticsPanel result={result} mc={mc} mcLoading={mcLoading} />
+              <OptimizerPanel household={household} scenario={scenario} onApply={setScenario} />
+              <Comparison
+                current={result}
+                snapshots={snapshots}
+                onSnapshot={saveSnapshot}
+                onRemove={(id) => setSnapshots((prev) => prev.filter((s) => s.id !== id))}
+                onClear={() => setSnapshots([])}
+              />
+            </>
+          ) : (
+            <Skeleton />
+          )}
+        </main>
       </div>
       <Disclaimer />
     </div>

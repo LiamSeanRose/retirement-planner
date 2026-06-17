@@ -21,6 +21,19 @@ export const DEFAULT_HOUSEHOLD: Household = {
   ],
 };
 
+/** A default spouse, used when couple mode is switched on. */
+export const DEFAULT_MEMBER_B: Household['memberA'] = {
+  label: 'Member B',
+  birthDate: '1971-03-01',
+  planJoinDate: '2008-01-01',
+  currentSalary: 72_000,
+  bestFiveAvgSalary: 70_000,
+  pensionableServiceYears: 24,
+  targetRetirementAge: 60,
+  estimatedCppAt65Monthly: 850,
+  oasEligible: true,
+};
+
 export const DEFAULT_SCENARIO: Scenario = {
   cppStartAge: { memberA: 65 },
   oasStartAge: { memberA: 65 },

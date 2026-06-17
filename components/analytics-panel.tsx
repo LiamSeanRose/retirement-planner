@@ -8,6 +8,7 @@ import { MetricsSummary } from './metrics-summary';
 import { CashFlowChart } from './charts/cash-flow-chart';
 import { NetWorthChart } from './charts/net-worth-chart';
 import { TaxOasChart } from './charts/tax-oas-chart';
+import { FanChart } from './charts/fan-chart';
 
 function BigStat({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
@@ -43,6 +44,16 @@ export function AnalyticsPanel({
           </div>
         </div>
       </Card>
+
+      {/* Monte Carlo fan: the distribution of net-worth outcomes over time */}
+      {mc && mc.netWorth.length > 0 ? (
+        <Card>
+          <CardHeader eyebrow="Distribution of outcomes" title="Net worth — 5th to 95th percentile" aside={<span className="text-xs text-faint">{mcLoading ? 'simulating…' : 'median + bands'}</span>} />
+          <div className="p-5">
+            <FanChart bands={mc.netWorth} />
+          </div>
+        </Card>
+      ) : null}
 
       {/* Signature: lifetime cash-flow by source */}
       <Card>

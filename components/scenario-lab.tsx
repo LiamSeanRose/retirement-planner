@@ -1,7 +1,7 @@
 'use client';
 
-import type { Account, AccountType, Household, Province, Scenario } from '@/types/planner';
-import { newAccount, RISK_PROFILES, riskProfileName } from '@/lib/share';
+import type { Account, AccountType, Household, Member, Province, Scenario } from '@/types/planner';
+import { DEFAULT_MEMBER_B, newAccount, RISK_PROFILES, riskProfileName } from '@/lib/share';
 import { money } from '@/lib/share';
 import { Card, CardHeader, SectionLabel } from './ui/card';
 import { NumberField, RangeField, Segmented, SelectField, TextField, Toggle } from './ui/controls';
@@ -34,6 +34,22 @@ function groupOf(planJoinDate: string): 1 | 2 {
   return new Date(planJoinDate).getTime() < new Date('2013-01-01T00:00:00Z').getTime() ? 1 : 2;
 }
 
+/** The per-member input set, reused for Member A and the spouse. */
+function MemberFields({ member, onChange }: { member: Member; onChange: (patch: Partial<Member>) => void }) {
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-3">
+        <TextField label="Birth date" type="date" value={member.birthDate} onChange={(v) => onChange({ birthDate: v })} />
+        <TextField label="Plan-join date" type="date" value={member.planJoinDate} onChange={(v) => onChange({ planJoinDate: v })} />
+      </div>
+      <RangeField label="Best-5 average salary" value={member.bestFiveAvgSalary} min={40_000} max={250_000} step={1_000} onChange={(v) => onChange({ bestFiveAvgSalary: v })} format={(v) => money(v)} />
+      <RangeField label="Pensionable service" value={member.pensionableServiceYears} min={2} max={40} step={0.5} onChange={(v) => onChange({ pensionableServiceYears: v })} format={(v) => `${v} yrs`} />
+      <RangeField label="Target retirement age" value={member.targetRetirementAge} min={50} max={71} onChange={(v) => onChange({ targetRetirementAge: v })} format={(v) => `age ${v}`} />
+      <NumberField label="Estimated CPP at 65 (monthly)" value={member.estimatedCppAt65Monthly} onChange={(v) => onChange({ estimatedCppAt65Monthly: v })} prefix="$" step={50} />
+    </div>
+  );
+}
+
 export function ScenarioLab({
   household,
   scenario,
@@ -48,6 +64,25 @@ export function ScenarioLab({
   const m = household.memberA;
   const a = scenario.assumptions;
   const setMember = (patch: Partial<typeof m>) => onHousehold({ ...household, memberA: { ...m, ...patch } });
+  const setMemberB = (patch: Partial<Member>) =>
+    household.memberB && onHousehold({ ...household, memberB: { ...household.memberB, ...patch } });
+  const toggleSpouse = (on: boolean) => {
+    if (on) {
+      onHousehold({ ...household, memberB: { ...DEFAULT_MEMBER_B } });
+      onScenario({
+        ...scenario,
+        cppStartAge: { ...scenario.cppStartAge, memberB: 65 },
+        oasStartAge: { ...scenario.oasStartAge, memberB: 65 },
+      });
+    } else {
+      onHousehold({ ...household, memberB: undefined });
+      onScenario({
+        ...scenario,
+        cppStartAge: { memberA: scenario.cppStartAge.memberA },
+        oasStartAge: { memberA: scenario.oasStartAge.memberA },
+      });
+    }
+  };
   const setAssumptions = (patch: Partial<typeof a>) => onScenario({ ...scenario, assumptions: { ...a, ...patch } });
   const setEvents = (patch: Partial<Scenario['events']>) => onScenario({ ...scenario, events: { ...scenario.events, ...patch } });
   const setAccounts = (accounts: Account[]) => onHousehold({ ...household, accounts });
@@ -62,17 +97,37 @@ export function ScenarioLab({
     <div className="space-y-5">
       {/* ---- Member ---- */}
       <Card>
-        <CardHeader eyebrow="The member" title="Profile" aside={<span className="rounded-full bg-evergreen/10 px-2.5 py-1 text-xs font-medium text-evergreen">Group {groupOf(m.planJoinDate)}</span>} />
+        <CardHeader eyebrow="Member A" title="Profile" aside={<span className="rounded-full bg-evergreen/10 px-2.5 py-1 text-xs font-medium text-evergreen">Group {groupOf(m.planJoinDate)}</span>} />
         <div className="space-y-4 p-5">
-          <div className="grid grid-cols-2 gap-3">
-            <TextField label="Birth date" type="date" value={m.birthDate} onChange={(v) => setMember({ birthDate: v })} />
-            <TextField label="Plan-join date" type="date" value={m.planJoinDate} onChange={(v) => setMember({ planJoinDate: v })} />
-          </div>
           <SelectField label="Province" value={household.province} options={PROVINCES} onChange={(v) => onHousehold({ ...household, province: v })} />
-          <RangeField label="Best-5 average salary" value={m.bestFiveAvgSalary} min={40_000} max={250_000} step={1_000} onChange={(v) => setMember({ bestFiveAvgSalary: v })} format={(v) => money(v)} />
-          <RangeField label="Pensionable service" value={m.pensionableServiceYears} min={2} max={40} step={0.5} onChange={(v) => setMember({ pensionableServiceYears: v })} format={(v) => `${v} yrs`} />
-          <RangeField label="Target retirement age" value={retireAge} min={50} max={71} step={1} onChange={(v) => setMember({ targetRetirementAge: v })} format={(v) => `age ${v}`} />
-          <NumberField label="Estimated CPP at 65 (monthly)" value={m.estimatedCppAt65Monthly} onChange={(v) => setMember({ estimatedCppAt65Monthly: v })} prefix="$" step={50} />
+          <MemberFields member={m} onChange={setMember} />
+        </div>
+      </Card>
+
+      {/* ---- Spouse / couple mode ---- */}
+      <Card>
+        <CardHeader
+          eyebrow="Couple mode"
+          title="Spouse"
+          aside={household.memberB ? <span className="rounded-full bg-evergreen/10 px-2.5 py-1 text-xs font-medium text-evergreen">Group {groupOf(household.memberB.planJoinDate)}</span> : null}
+        />
+        <div className="p-5">
+          <Toggle
+            label="Add spouse (Member B)"
+            description="Model a second member — their pension, CPP/OAS, automated income splitting, and the survivor rule."
+            checked={!!household.memberB}
+            onChange={toggleSpouse}
+          >
+            {household.memberB ? (
+              <>
+                <MemberFields member={household.memberB} onChange={setMemberB} />
+                <div className="grid grid-cols-2 gap-3">
+                  <RangeField label="Spouse CPP start" value={scenario.cppStartAge.memberB ?? 65} min={60} max={70} onChange={(v) => onScenario({ ...scenario, cppStartAge: { ...scenario.cppStartAge, memberB: v } })} format={(v) => `age ${v}`} />
+                  <RangeField label="Spouse OAS start" value={scenario.oasStartAge.memberB ?? 65} min={65} max={70} onChange={(v) => onScenario({ ...scenario, oasStartAge: { ...scenario.oasStartAge, memberB: v } })} format={(v) => `age ${v}`} />
+                </div>
+              </>
+            ) : null}
+          </Toggle>
         </div>
       </Card>
 
