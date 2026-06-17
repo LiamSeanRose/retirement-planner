@@ -1,0 +1,15 @@
+# Security response headers for static hosts that read a `_headers` file (Netlify, Cloudflare Pages).
+# Next copies public/ into the export output, so this ships to out/_headers automatically.
+# Vercel uses vercel.json instead. GitHub Pages CANNOT set custom headers (a platform limitation) —
+# prefer Vercel / Netlify / Cloudflare Pages if you want these applied.
+#
+# CSP notes: script/style 'unsafe-inline' is required because a static export can't issue per-request
+# nonces and Next inlines its hydration script. connect-src allows the opt-in Anthropic call; data:/blob:
+# cover the AI-import image and the CSV download. Verify on first deploy and relax only if something
+# legitimate is blocked.
+/*
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://api.anthropic.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
