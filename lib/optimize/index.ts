@@ -10,8 +10,8 @@
  * (minimize-objectives are negated), so every solver is a plain argmax.
  */
 
-import type { AccountType, Household, Scenario, ScenarioResult, YearRow } from '../../types/planner';
-import { runScenario } from '../engine';
+import type { AccountType, Household, Province, Scenario, ScenarioResult, YearRow } from '../../types/planner';
+import { runMonteCarloScenario, runScenario } from '../engine';
 
 export type Objective =
   | 'maxLifetimeAfterTax'
@@ -190,4 +190,170 @@ export function strategyOptimizer(
   }
 
   return { objective, baseline, best: current };
+}
+
+// --- Optimizer depth: Monte-Carlo scoring + broadened multi-knob search --------------------------
+
+/** How candidates are scored: a deterministic objective, or the Monte Carlo probability of success. */
+export type ScoringStrategy =
+  | { kind: 'deterministic'; objective: Objective }
+  | { kind: 'monteCarlo'; seed?: number };
+
+/** Accept either a bare Objective (⇒ deterministic) or a full ScoringStrategy. */
+export type ScoringInput = Objective | ScoringStrategy;
+
+function asStrategy(input: ScoringInput): ScoringStrategy {
+  return typeof input === 'string' ? { kind: 'deterministic', objective: input } : input;
+}
+
+/** Build a candidate scorer (higher is always better) from a scoring strategy. */
+function makeCandidateScorer(strategy: ScoringStrategy): (h: Household, s: Scenario) => number {
+  if (strategy.kind === 'monteCarlo') {
+    const seed = strategy.seed ?? 0;
+    return (h, s) => runMonteCarloScenario(h, s, seed).probabilityOfSuccess;
+  }
+  const { objective } = strategy;
+  return (h, s) => scoreScenario(objective, runScenario(h, s));
+}
+
+/** Fixed seed for the displayed confidence (probability of success) on the headline plans. */
+const PROBABILITY_SEED = 0;
+
+function inclusiveRange(min: number, max: number): number[] {
+  const out: number[] = [];
+  for (let v = min; v <= max; v++) out.push(v);
+  return out;
+}
+
+/** The "do-nothing" default plan: CPP/OAS at 65, no meltdown, engine-default withdrawal order. */
+function doNothingScenario(user: Scenario): Scenario {
+  const cppStartAge: Scenario['cppStartAge'] = { memberA: 65 };
+  if (user.cppStartAge.memberB !== undefined) cppStartAge.memberB = 65;
+  const oasStartAge: Scenario['oasStartAge'] = { memberA: 65 };
+  if (user.oasStartAge.memberB !== undefined) oasStartAge.memberB = 65;
+  return { ...user, cppStartAge, oasStartAge, meltdown: { mode: 'none' }, withdrawalOrder: undefined };
+}
+
+/** Which knobs the broadened search explores (all on by default). */
+export interface SearchKnobs {
+  cppStart?: boolean;
+  oasStart?: boolean;
+  withdrawalOrder?: boolean;
+  meltdownPace?: boolean;
+}
+
+export interface OptimizedPlan {
+  label: string;
+  scenario: Scenario;
+  /** Deterministic projection of this plan (for the metrics table). */
+  result: ScenarioResult;
+  /** Score under the chosen scoring strategy (higher = better). */
+  score: number;
+  /** Monte Carlo plan-success probability in [0, 1] — always computed for the headline plans. */
+  probabilityOfSuccess: number;
+}
+
+export interface OptimizePlanResult {
+  scoring: ScoringStrategy;
+  /** The assumptions the result is conditional on (stated for the UI). */
+  assumptions: {
+    province: Province;
+    inflationPct: number;
+    indexingPct: number;
+    endAge: number;
+    monteCarloRuns?: number;
+  };
+  /** The optimized plan; never scores worse than the user's plan OR the do-nothing baseline. */
+  winner: OptimizedPlan;
+  /** The do-nothing default (CPP/OAS at 65, no meltdown). */
+  doNothing: OptimizedPlan;
+  /** The user's input scenario, unchanged. */
+  yourPlan: OptimizedPlan;
+  /** Number of candidate evaluations the search performed. */
+  evaluated: number;
+}
+
+const MAX_PLAN_SWEEPS = 5;
+
+/**
+ * The comprehensive optimizer: coordinate descent over the broadened knob set (CPP start, OAS start,
+ * withdrawal order, meltdown pace), scored deterministically OR by Monte Carlo probability of success.
+ * Always returns the winner alongside the do-nothing baseline and the user's own plan, with the
+ * scoring and the assumptions it is conditional on. The search seeds from the better of {user plan,
+ * do-nothing}, so the winner is guaranteed ≥ both.
+ *
+ * NOTE: meltdown pace is searched for forward compatibility — the projection does not yet consume
+ * `scenario.meltdown`, so varying it is currently inert; RRIF-conversion age has no scenario lever at
+ * all (the engine fixes 71), so it is not searched.
+ */
+export function optimizePlan(
+  household: Household,
+  userScenario: Scenario,
+  scoring: ScoringInput = 'maxLifetimeAfterTax',
+  knobs: SearchKnobs = {},
+): OptimizePlanResult {
+  const strategy = asStrategy(scoring);
+  const score = makeCandidateScorer(strategy);
+
+  const candidateGenerators: Array<(s: Scenario) => Scenario[]> = [];
+  if (knobs.cppStart ?? true)
+    candidateGenerators.push((s) =>
+      inclusiveRange(CPP_START_MIN, CPP_START_MAX).map((age) => ({ ...s, cppStartAge: { ...s.cppStartAge, memberA: age } })),
+    );
+  if (knobs.oasStart ?? true)
+    candidateGenerators.push((s) =>
+      inclusiveRange(OAS_START_MIN, OAS_START_MAX).map((age) => ({ ...s, oasStartAge: { ...s.oasStartAge, memberA: age } })),
+    );
+  if (knobs.withdrawalOrder ?? true)
+    candidateGenerators.push((s) => WITHDRAWAL_ORDERS.map((order) => ({ ...s, withdrawalOrder: order })));
+  if (knobs.meltdownPace ?? true)
+    candidateGenerators.push((s) => MELTDOWN_MODES.map((mode) => ({ ...s, meltdown: { ...s.meltdown, mode } })));
+
+  // Seed from the better of {user plan, do-nothing} so the winner can never lose to either.
+  const doNothing = doNothingScenario(userScenario);
+  const userScore = score(household, userScenario);
+  const dnScore = score(household, doNothing);
+  let evaluated = 2;
+
+  let bestScenario = userScore >= dnScore ? userScenario : doNothing;
+  let bestScore = Math.max(userScore, dnScore);
+
+  for (let sweep = 0; sweep < MAX_PLAN_SWEEPS; sweep++) {
+    let improved = false;
+    for (const generate of candidateGenerators) {
+      for (const candidate of generate(bestScenario)) {
+        const s = score(household, candidate);
+        evaluated++;
+        if (s > bestScore + 1e-9) {
+          bestScenario = candidate;
+          bestScore = s;
+          improved = true;
+        }
+      }
+    }
+    if (!improved) break;
+  }
+
+  const summarize = (label: string, scenario: Scenario, scoreValue: number): OptimizedPlan => ({
+    label,
+    scenario,
+    result: runScenario(household, scenario),
+    score: scoreValue,
+    probabilityOfSuccess: runMonteCarloScenario(household, scenario, PROBABILITY_SEED).probabilityOfSuccess,
+  });
+
+  return {
+    scoring: strategy,
+    assumptions: {
+      province: household.province,
+      inflationPct: userScenario.assumptions.inflationPct,
+      indexingPct: userScenario.assumptions.indexingPct,
+      endAge: userScenario.assumptions.endAge,
+      monteCarloRuns: userScenario.assumptions.runs,
+    },
+    winner: summarize('winner', bestScenario, bestScore),
+    doNothing: summarize('do-nothing', doNothing, dnScore),
+    yourPlan: summarize('your plan', userScenario, userScore),
+    evaluated,
+  };
 }
