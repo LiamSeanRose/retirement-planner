@@ -10,6 +10,8 @@ import { OptimizerPanel } from '@/components/optimizer-panel';
 import { Comparison, type Snapshot } from '@/components/comparison';
 import { EstatePanel } from '@/components/estate-panel';
 import { StressPanel } from '@/components/stress-panel';
+import { InsightsPanel } from '@/components/insights-panel';
+import { MeltdownCallout } from '@/components/meltdown-callout';
 import { useMonteCarlo } from '@/components/use-monte-carlo';
 
 const RULES_AS_OF = '2026';
@@ -133,6 +135,8 @@ export default function Page() {
           {mounted ? (
             <>
               <AnalyticsPanel result={result} mc={mc} mcLoading={mcLoading} />
+              <InsightsPanel household={household} scenario={scenario} />
+              <MeltdownCallout household={household} scenario={scenario} />
               <EstatePanel household={household} scenario={scenario} result={result} />
               <OptimizerPanel household={household} scenario={scenario} onApply={setScenario} />
               <StressPanel household={household} scenario={scenario} />

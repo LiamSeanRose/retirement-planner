@@ -2,74 +2,78 @@
 
 import { useMemo } from 'react';
 import type { Household, Scenario } from '@/types/planner';
-import { runScenario } from '@/lib/engine';
+import { blendedRiskProfile, runScenario, runScenarioOverPath } from '@/lib/engine';
+import { PROJECTION_LAYER_STRESSORS, STRESS_SCENARIOS } from '@/lib/stress';
 import { Card, CardHeader } from './ui/card';
 
-/**
- * Stress tests. The engine doesn't yet expose a path-accepting runner (runScenarioOverPath), so each
- * named adverse scenario is APPROXIMATED by shifting the plan's inputs (haircut returns, raise
- * inflation, extend longevity, lift spending) and re-running the deterministic projection. Clearly
- * labelled "approximate"; swap to true stress paths once the engine exposes them.
- */
-function haircutReturns(h: Household, points: number): Household {
-  return {
-    ...h,
-    accounts: h.accounts.map((a) => ({
-      ...a,
-      riskProfile: { ...a.riskProfile, expectedReturn: Math.max(0, a.riskProfile.expectedReturn - points) },
-    })),
-  };
-}
-
-const STRESS_TESTS: {
+interface Row {
   id: string;
   label: string;
   desc: string;
-  apply: (h: Household, s: Scenario) => { h: Household; s: Scenario };
-}[] = [
-  { id: 'crash', label: 'Early market crash', desc: 'A deep equity drawdown early in retirement', apply: (h, s) => ({ h: haircutReturns(h, 4.5), s }) },
-  { id: 'lowreturn', label: 'Low-return decade', desc: 'Sustained weak real returns', apply: (h, s) => ({ h: haircutReturns(h, 3), s }) },
-  { id: 'inflation', label: 'High inflation', desc: 'Spending outpaces indexing', apply: (h, s) => ({ h, s: { ...s, assumptions: { ...s.assumptions, inflationPct: s.assumptions.inflationPct + 3 } } }) },
-  { id: 'longevity', label: 'Longevity shock', desc: 'Living to 100+', apply: (h, s) => ({ h, s: { ...s, assumptions: { ...s.assumptions, endAge: Math.max(100, s.assumptions.endAge) } } }) },
-  { id: 'expense', label: 'Higher spending', desc: 'A sustained step-up in the spending target', apply: (h, s) => ({ h, s: { ...s, assumptions: { ...s.assumptions, targetAnnualSpending: (s.assumptions.targetAnnualSpending ?? 0) + 9000 } } }) },
-];
+  survives: boolean;
+  shortfall?: number;
+  approximate: boolean;
+}
+
+function survivesOf(rows: { netWorth: number; ageA: number }[], lasts: boolean) {
+  return { survives: lasts, shortfall: lasts ? undefined : rows.find((r) => r.netWorth <= 1)?.ageA };
+}
 
 export function StressPanel({ household, scenario }: { household: Household; scenario: Scenario }) {
-  const results = useMemo(
-    () =>
-      STRESS_TESTS.map((t) => {
-        const { h, s } = t.apply(household, scenario);
-        const res = runScenario(h, s);
-        const survives = res.totals.lastsToEndAge;
-        const shortfall = survives ? undefined : res.rows.find((r) => r.netWorth <= 1)?.ageA;
-        return { ...t, survives, shortfall };
-      }),
-    [household, scenario],
-  );
+  const rows = useMemo<Row[]>(() => {
+    const years = Math.max(0, scenario.assumptions.endAge - household.memberA.targetRetirementAge + 1);
+    const base = Array.from({ length: years }, () => ({
+      returnPct: blendedRiskProfile(household.accounts).meanPct,
+      inflationPct: scenario.assumptions.inflationPct,
+      indexingPct: scenario.assumptions.indexingPct,
+    }));
+
+    // True sequence-of-returns stress: transform the base path and run it for real.
+    const pathRows: Row[] = STRESS_SCENARIOS.map((sc) => {
+      const res = runScenarioOverPath(household, scenario, sc.makePath(base));
+      const s = survivesOf(res.rows, res.totals.lastsToEndAge);
+      return { id: sc.id, label: sc.label, desc: sc.describe, ...s, approximate: false };
+    });
+
+    // Projection-layer stressors: approximated by shifting the relevant input (labelled).
+    const approxRows: Row[] = PROJECTION_LAYER_STRESSORS.map((st) => {
+      let h = household;
+      let s = scenario;
+      if (st.appliesAt === 'projection.endAge') s = { ...s, assumptions: { ...s.assumptions, endAge: Math.max(100, s.assumptions.endAge) } };
+      else if (st.appliesAt === 'projection.spend') s = { ...s, assumptions: { ...s.assumptions, targetAnnualSpending: (s.assumptions.targetAnnualSpending ?? 0) + 9_000 } };
+      else if (st.appliesAt === 'projection.benefits') h = { ...h, memberA: { ...h.memberA, estimatedCppAt65Monthly: h.memberA.estimatedCppAt65Monthly * 0.85 } };
+      else if (st.appliesAt === 'projection.survivorRule')
+        s = { ...s, events: { ...s.events, earlyMortality: s.events.earlyMortality ?? { member: 'memberB', atAge: 80 } } };
+      const res = runScenario(h, s);
+      const surv = survivesOf(res.rows, res.totals.lastsToEndAge);
+      return { id: st.id, label: st.label, desc: st.describe, ...surv, approximate: true };
+    });
+
+    return [...pathRows, ...approxRows];
+  }, [household, scenario]);
 
   return (
     <Card>
-      <CardHeader eyebrow="What breaks this plan" title="Stress tests" aside={<span className="text-xs text-faint">approximate</span>} />
+      <CardHeader eyebrow="What breaks this plan" title="Stress tests" />
       <ul className="divide-y divide-line">
-        {results.map((r) => (
+        {rows.map((r) => (
           <li key={r.id} className="flex items-center justify-between gap-4 px-5 py-3">
             <div>
-              <p className="text-sm font-medium text-ink">{r.label}</p>
+              <p className="flex items-center gap-2 text-sm font-medium text-ink">
+                {r.label}
+                {r.approximate ? <span className="rounded bg-line/60 px-1.5 py-0.5 text-[0.625rem] uppercase tracking-wide text-faint">approx</span> : null}
+              </p>
               <p className="text-xs text-faint">{r.desc}</p>
             </div>
-            <span
-              className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${
-                r.survives ? 'bg-evergreen/10 text-evergreen' : 'bg-maple/10 text-maple'
-              }`}
-            >
+            <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${r.survives ? 'bg-evergreen/10 text-evergreen' : 'bg-maple/10 text-maple'}`}>
               {r.survives ? 'Survives' : `Shortfall · age ${r.shortfall ?? '—'}`}
             </span>
           </li>
         ))}
       </ul>
       <p className="px-5 pb-4 pt-1 text-xs leading-snug text-faint">
-        Approximated by shifting returns, inflation, longevity, and spending — not true year-by-year stress paths. A
-        sequence-of-returns engine pass will sharpen the early-crash case.
+        The first three run a real adverse return path year-by-year (sequence-of-returns risk). The rest are approximated by
+        shifting longevity, spending, benefits, or the survivor event.
       </p>
     </Card>
   );

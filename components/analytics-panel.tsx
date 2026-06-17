@@ -45,12 +45,19 @@ export function AnalyticsPanel({
         </div>
       </Card>
 
-      {/* Monte Carlo fan: the distribution of net-worth outcomes over time */}
-      {mc && mc.netWorth.length > 0 ? (
+      {/* Monte Carlo fans: net worth AND after-tax income, across sampled market paths */}
+      {mc && (mc.netWorth.length > 0 || mc.afterTax.length > 0) ? (
         <Card>
-          <CardHeader eyebrow="Distribution of outcomes" title="Net worth — 5th to 95th percentile" aside={<span className="text-xs text-faint">{mcLoading ? 'simulating…' : 'median + bands'}</span>} />
-          <div className="p-5">
-            <FanChart bands={mc.netWorth} />
+          <CardHeader eyebrow="Distribution of outcomes" title="Range across market paths" aside={<span className="text-xs text-faint">{mcLoading ? 'simulating…' : 'p5–p95 + median'}</span>} />
+          <div className="grid gap-6 p-5 lg:grid-cols-2">
+            <div>
+              <p className="eyebrow mb-2">Net worth</p>
+              <FanChart bands={mc.netWorth} />
+            </div>
+            <div>
+              <p className="eyebrow mb-2">After-tax income</p>
+              <FanChart bands={mc.afterTax} />
+            </div>
           </div>
         </Card>
       ) : null}
