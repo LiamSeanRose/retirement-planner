@@ -27,6 +27,7 @@ import {
   eligibleDividendTaxableAmount,
   growAccount,
   interestTaxableAmount,
+  lifMaximum,
   rrifMinimum,
 } from '../accounts';
 import { householdFilingStatus, survivorAllowanceAnnual, survivorCppBenefitAnnual } from '../survivor';
@@ -230,6 +231,14 @@ export function runProjection(
   const withdrawalOrder = scenario.withdrawalOrder ?? DEFAULT_WITHDRAWAL_ORDER;
   const balances = collapseBalances(household.accounts);
 
+  // Federal one-time 50% unlock at LIF/RLIF creation (modelled at retirement, age 55+): move half the
+  // locked-in balance to the RRSP, where it follows the flexible RRSP/RRIF rules (no LIF maximum).
+  if (scenario.assumptions.lifUnlock50 && balances.lira > 0 && retirementAge >= 55) {
+    const unlocked = balances.lira * 0.5;
+    balances.lira -= unlocked;
+    balances.rrsp += unlocked;
+  }
+
   // A member's share of a pooled balance: their ownership while both are alive; the SURVIVOR holds
   // the whole pool after a death (the deceased's accounts roll over). Single mode = the lone member.
   const shareFor = (id: MemberId, base: Record<MemberId, number>, aliveById: Record<MemberId, boolean>): number => {
@@ -345,6 +354,16 @@ export function runProjection(
         if (type === 'rrsp') rrifExtra += withdrawn;
         else if (type === 'tfsa') tfsaWd += withdrawn;
         else nonRegInc += withdrawn;
+        need -= withdrawn;
+      }
+      // Locked-in (LIF) is tapped only as a last resort and only UP TO its federal maximum (the
+      // mandatory minimum already came out above); the rest stays locked. Counts as a taxable
+      // registered draw (folded into rrifExtra), like a RRIF withdrawal.
+      if (need > 1e-6 && balances.lira > 0) {
+        const lifHeadroom = Math.max(0, lifMaximum(jan1Lira, ageA) - lifMin);
+        const { withdrawn } = applyWithdrawal(Math.min(balances.lira, lifHeadroom), need);
+        balances.lira -= withdrawn;
+        rrifExtra += withdrawn;
         need -= withdrawn;
       }
       if (need > 1e-6) lastsToEndAge = false; // accounts exhausted before spending was met

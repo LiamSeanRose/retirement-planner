@@ -55,6 +55,22 @@ describe('LIRA / LIF (locked-in PSPP transfer value)', () => {
     expect(withL.totals.lifetimeTax).toBeGreaterThan(base.totals.lifetimeTax);
     expect(withL.totals.estateValue).toBeGreaterThan(base.totals.estateValue);
   });
+
+  it('taps the LIF for spending (up to its max) when income falls short', () => {
+    const liraOnly: Household = { ...household, accounts: [{ id: 'l', owner: 'memberA', type: 'lira', currentBalance: 400_000, riskProfile: { expectedReturn: 4, volatility: 10 } }] };
+    const lowSpend = runScenario(liraOnly, { ...scenario, assumptions: { ...scenario.assumptions, targetAnnualSpending: 30_000 } });
+    const highSpend = runScenario(liraOnly, { ...scenario, assumptions: { ...scenario.assumptions, targetAnnualSpending: 90_000 } });
+    // higher spending draws extra from the LIF (beyond the mandatory minimum) → a lower locked-in balance
+    expect(highSpend.rows.find((r) => r.ageA === 75)!.balances.lira).toBeLessThan(lowSpend.rows.find((r) => r.ageA === 75)!.balances.lira);
+  });
+
+  it('the 50% unlock moves half the LIRA into the RRSP at retirement', () => {
+    const unlocked = runScenario(withLira, { ...scenario, assumptions: { ...scenario.assumptions, lifUnlock50: true } });
+    const u0 = unlocked.rows[0];
+    const l0 = withL.rows[0];
+    expect(u0.balances.lira).toBeLessThan(l0.balances.lira); // locked-in halved
+    expect(u0.balances.rrsp).toBeGreaterThan(l0.balances.rrsp); // the unlocked half landed in the RRSP
+  });
 });
 
 describe('variable spending phases (go-go / slow-go / no-go)', () => {

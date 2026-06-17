@@ -94,6 +94,11 @@ export interface Scenario {
       slowGoPct: number; // fraction of the go-go base, e.g. 0.85
       noGoPct: number; // e.g. 0.70
     };
+    /**
+     * Federal one-time 50% unlock: at LIF/RLIF creation (modelled at retirement, age 55+) move 50% of
+     * the locked-in (LIRA) balance to the RRSP, where it follows the more flexible RRSP/RRIF rules.
+     */
+    lifUnlock50?: boolean;
   };
   events: {
     /** WFA/VDP package → taxable Transition Support Measure lump sum in the departure year (§18). */

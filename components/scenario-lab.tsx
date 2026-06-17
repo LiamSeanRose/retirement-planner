@@ -166,6 +166,14 @@ export function ScenarioLab({
               </button>
             ))}
           </div>
+          {household.accounts.some((acc) => acc.type === 'lira') ? (
+            <Toggle
+              label="Unlock 50% of locked-in (RLIF)"
+              description="Federal one-time option at retirement (age 55+): move half the LIRA to your RRSP, where it draws freely with no LIF maximum."
+              checked={!!a.lifUnlock50}
+              onChange={(on) => setAssumptions({ lifUnlock50: on })}
+            />
+          ) : null}
         </div>
       </Card>
 
