@@ -177,18 +177,22 @@ export function Toggle({
   children?: ReactNode;
 }) {
   return (
-    <div className="rounded border border-line bg-paper/60 p-3">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-sm font-medium text-ink">{label}</p>
-          {description ? <p className="mt-0.5 text-xs leading-snug text-faint">{description}</p> : null}
-        </div>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={checked}
-          aria-label={label}
-          onClick={() => onChange(!checked)}
+    <div className="rounded border border-line bg-paper/60">
+      {/* The whole header row is the click target — not just the switch — so tapping the label toggles it. */}
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label={label}
+        onClick={() => onChange(!checked)}
+        className="flex w-full cursor-pointer items-start justify-between gap-3 rounded p-3 text-left transition-colors hover:bg-line/30 focus-visible:outline focus-visible:outline-2 focus-visible:outline-evergreen"
+      >
+        <span className="block">
+          <span className="block text-sm font-medium text-ink">{label}</span>
+          {description ? <span className="mt-0.5 block text-xs leading-snug text-faint">{description}</span> : null}
+        </span>
+        <span
+          aria-hidden="true"
           className={`relative mt-0.5 h-5 w-9 shrink-0 rounded-full transition-colors ${
             checked ? 'bg-evergreen' : 'bg-line'
           }`}
@@ -198,9 +202,9 @@ export function Toggle({
               checked ? 'translate-x-4' : 'translate-x-0.5'
             }`}
           />
-        </button>
-      </div>
-      {checked && children ? <div className="mt-3 space-y-3 border-t border-line pt-3">{children}</div> : null}
+        </span>
+      </button>
+      {checked && children ? <div className="space-y-3 border-t border-line px-3 pb-3 pt-3">{children}</div> : null}
     </div>
   );
 }
