@@ -328,6 +328,24 @@ export function ScenarioLab({
               </>
             ) : null}
           </Toggle>
+
+          <Toggle label="Government benefit cut" description="Policy-risk what-if: CPP and OAS trimmed by a set amount from a chosen age onward." checked={!!ev.benefitCut} onChange={(on) => setEvents({ benefitCut: on ? { fromAge: 75, reductionPct: 0.2 } : undefined })}>
+            {ev.benefitCut ? (
+              <div className="grid grid-cols-2 gap-3">
+                <RangeField label="Cut CPP & OAS by" value={Math.round(ev.benefitCut.reductionPct * 100)} min={5} max={50} step={5} onChange={(v) => setEvents({ benefitCut: { ...ev.benefitCut!, reductionPct: v / 100 } })} format={(v) => `${v}%`} />
+                <RangeField label="From age" value={ev.benefitCut.fromAge} min={retireAge} max={a.endAge} onChange={(v) => setEvents({ benefitCut: { ...ev.benefitCut!, fromAge: v } })} format={(v) => `age ${v}`} />
+              </div>
+            ) : null}
+          </Toggle>
+
+          <Toggle label="Move to another province" description="Relocate at a chosen age — provincial income tax switches to the new province from then on (federal tax is unchanged)." checked={!!ev.relocate} onChange={(on) => setEvents({ relocate: on ? { atAge: retireAge + 5, toProvince: household.province === 'AB' ? 'ON' : 'AB' } : undefined })}>
+            {ev.relocate ? (
+              <>
+                <SelectField label="Move to" value={ev.relocate.toProvince} options={PROVINCES} onChange={(v) => setEvents({ relocate: { ...ev.relocate!, toProvince: v } })} />
+                <RangeField label="At age" value={ev.relocate.atAge} min={retireAge} max={a.endAge} onChange={(v) => setEvents({ relocate: { ...ev.relocate!, atAge: v } })} format={(v) => `age ${v}`} />
+              </>
+            ) : null}
+          </Toggle>
         </div>
       </Card>
     </div>

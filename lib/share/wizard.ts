@@ -9,6 +9,9 @@
 import type { Account, Household, Province, Scenario } from '../../types/planner';
 import { DEFAULT_MEMBER_B, DEFAULT_SCENARIO, RISK_PROFILES } from './defaults';
 
+/** Investing style — maps to the per-account return/volatility used by the projection + Monte Carlo. */
+export type RiskTolerance = 'Conservative' | 'Balanced' | 'Growth' | 'Aggressive';
+
 export interface WizardAnswers {
   birthYear: number;
   /** Joined the federal public service before 2013 ⇒ pension Group 1; on/after ⇒ Group 2. */
@@ -23,6 +26,7 @@ export interface WizardAnswers {
   rrsp: number;
   tfsa: number;
   nonReg: number;
+  riskTolerance: RiskTolerance;
   ownsHome: boolean;
   homeValue: number;
   annualSpending: number;
@@ -41,19 +45,19 @@ export const WIZARD_DEFAULTS: WizardAnswers = {
   rrsp: 350_000,
   tfsa: 90_000,
   nonReg: 60_000,
+  riskTolerance: 'Balanced',
   ownsHome: true,
   homeValue: 600_000,
   annualSpending: 60_000,
 };
 
-const balanced = () => ({ ...RISK_PROFILES.Balanced });
-
 /** Build the held accounts from the balances given — skipping any that are zero. */
 function accountsFrom(ans: WizardAnswers): Account[] {
+  const rp = () => ({ ...(RISK_PROFILES[ans.riskTolerance] ?? RISK_PROFILES.Balanced) });
   const out: Account[] = [];
-  if (ans.rrsp > 0) out.push({ id: 'rrsp-w', owner: 'memberA', type: 'rrsp', currentBalance: ans.rrsp, riskProfile: balanced() });
-  if (ans.tfsa > 0) out.push({ id: 'tfsa-w', owner: 'memberA', type: 'tfsa', currentBalance: ans.tfsa, riskProfile: balanced() });
-  if (ans.nonReg > 0) out.push({ id: 'nonreg-w', owner: 'memberA', type: 'nonReg', currentBalance: ans.nonReg, riskProfile: balanced() });
+  if (ans.rrsp > 0) out.push({ id: 'rrsp-w', owner: 'memberA', type: 'rrsp', currentBalance: ans.rrsp, riskProfile: rp() });
+  if (ans.tfsa > 0) out.push({ id: 'tfsa-w', owner: 'memberA', type: 'tfsa', currentBalance: ans.tfsa, riskProfile: rp() });
+  if (ans.nonReg > 0) out.push({ id: 'nonreg-w', owner: 'memberA', type: 'nonReg', currentBalance: ans.nonReg, riskProfile: rp() });
   return out;
 }
 

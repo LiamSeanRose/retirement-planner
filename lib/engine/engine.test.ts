@@ -115,6 +115,30 @@ describe('"if this happens" life events (long-term care, one-time expense, windf
   });
 });
 
+describe('government benefit cut + province relocation', () => {
+  const base = runScenario(household, scenario);
+  const withEvents = (events: Partial<Scenario['events']>): Scenario => ({ ...scenario, events: { ...scenario.events, ...events } });
+
+  it('a benefit cut scales CPP + OAS from the chosen age (and lowers lifetime after-tax)', () => {
+    const cut = runScenario(household, withEvents({ benefitCut: { fromAge: 70, reductionPct: 0.25 } }));
+    const b72 = base.rows.find((r) => r.ageA === 72)!;
+    const c72 = cut.rows.find((r) => r.ageA === 72)!;
+    expect(c72.cpp + c72.oas).toBeCloseTo((b72.cpp + b72.oas) * 0.75, 4); // trimmed 25%
+    // ...but a pre-cut year (age 68) is untouched.
+    const b68 = base.rows.find((r) => r.ageA === 68)!;
+    const c68 = cut.rows.find((r) => r.ageA === 68)!;
+    expect(c68.cpp + c68.oas).toBeCloseTo(b68.cpp + b68.oas, 4);
+    expect(cut.totals.lifetimeAfterTax).toBeLessThan(base.totals.lifetimeAfterTax);
+  });
+
+  it('relocating to a lower-tax province (ON → AB at 65) cuts lifetime tax', () => {
+    const ab = runScenario(household, withEvents({ relocate: { atAge: 65, toProvince: 'AB' } }));
+    expect(ab.totals.lifetimeTax).toBeLessThan(base.totals.lifetimeTax);
+    // Pre-move years are still taxed in Ontario, so the early rows match the base exactly.
+    expect(ab.rows.find((r) => r.ageA === 62)!.tax).toBeCloseTo(base.rows.find((r) => r.ageA === 62)!.tax, 4);
+  });
+});
+
 describe('variable spending phases (go-go / slow-go / no-go)', () => {
   const spend = { ...scenario, assumptions: { ...scenario.assumptions, targetAnnualSpending: 80_000 } };
   const flat = runScenario(household, spend);
