@@ -10,9 +10,21 @@
  */
 
 import type { Group, Province } from '../lib/types';
+import type { YearPath } from '../lib/paths';
 
 export type { Group, Province } from '../lib/types';
 export type { YearPath, ReturnPath } from '../lib/paths';
+
+/**
+ * A year of path conditions that may additionally carry PER-ACCOUNT-TYPE returns. A plain
+ * `YearPath` (no `returnByType`) is a valid `YearReturns`, so every existing `ReturnPath` is still
+ * a `ReturnPathByType` — the projection grows each account type by its own return when present, and
+ * falls back to the single `returnPct` otherwise.
+ */
+export interface YearReturns extends YearPath {
+  returnByType?: { rrsp: number; tfsa: number; nonReg: number };
+}
+export type ReturnPathByType = YearReturns[];
 
 /** Which member (or jointly) owns an account — drives splitting + survivor logic in couple mode. */
 export type Owner = 'memberA' | 'memberB' | 'joint';

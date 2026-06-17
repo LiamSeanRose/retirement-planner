@@ -15,14 +15,20 @@
  * unchanged. Percentages on the path/scenario are in percent; the engines take fractions.
  */
 
-import type { ReturnPath } from '../paths';
 import type { Province } from '../types';
-import type { Account, AccountType, Household, Member, Scenario, ScenarioResult, YearRow } from '../../types/planner';
+import type { Account, AccountType, Household, Member, ReturnPathByType, Scenario, ScenarioResult, YearRow } from '../../types/planner';
 import { DEFAULT_CONFIG, type YearConfig } from '../config';
 import { determineGroup, indexedValue, pensionAtRetirement } from '../pension';
 import { cppMonthlyAtStart } from '../cpp';
 import { oasClawback, oasMonthly } from '../oas';
-import { applyWithdrawal, growAccount, rrifMinimum } from '../accounts';
+import {
+  applyWithdrawal,
+  capitalGainTaxableAmount,
+  eligibleDividendTaxableAmount,
+  growAccount,
+  interestTaxableAmount,
+  rrifMinimum,
+} from '../accounts';
 import { householdFilingStatus, survivorAllowanceAnnual } from '../survivor';
 import { eriWaiverApplies, secondCareerIncomeForYear, wfaLumpSumForYear } from '../workforce';
 
@@ -134,6 +140,23 @@ function registeredShares(accounts: Account[]): Record<MemberId, number> {
   return { memberA: a / total, memberB: b / total };
 }
 
+/** Split the pooled non-registered balance by owner — joint accounts split 50/50. */
+function nonRegShares(accounts: Account[]): Record<MemberId, number> {
+  let a = 0;
+  let b = 0;
+  for (const acc of accounts) {
+    if (acc.type !== 'nonReg') continue;
+    if (acc.owner === 'memberB') b += acc.currentBalance;
+    else if (acc.owner === 'joint') {
+      a += acc.currentBalance / 2;
+      b += acc.currentBalance / 2;
+    } else a += acc.currentBalance;
+  }
+  const total = a + b;
+  if (total <= 0) return { memberA: 1, memberB: 0 };
+  return { memberA: a / total, memberB: b / total };
+}
+
 interface Lines {
   pension: number;
   bridge: number;
@@ -181,14 +204,16 @@ function withProjectedThreshold(config: YearConfig, incomeYear: number, inflatio
 export function runProjection(
   household: Household,
   scenario: Scenario,
-  path: ReturnPath,
+  path: ReturnPathByType,
   computeTax: TaxFn,
   config: YearConfig = DEFAULT_CONFIG,
 ): ScenarioResult {
   const plans: MemberPlan[] = [buildPlan(household.memberA, 'memberA', scenario, config)];
   if (household.memberB) plans.push(buildPlan(household.memberB, 'memberB', scenario, config));
   const isCouple = plans.length === 2;
-  const baseShares = registeredShares(household.accounts);
+  const baseRegShares = registeredShares(household.accounts);
+  const baseNonRegShares = nonRegShares(household.accounts);
+  const nrc = config.nonRegistered;
 
   const retirementAge = household.memberA.targetRetirementAge;
   const endAge = scenario.assumptions.endAge;
@@ -197,11 +222,11 @@ export function runProjection(
   const withdrawalOrder = scenario.withdrawalOrder ?? DEFAULT_WITHDRAWAL_ORDER;
   const balances = collapseBalances(household.accounts);
 
-  // A member's share of the registered pool for RRIF minimums: their ownership share while both are
-  // alive, but the SURVIVOR holds the whole pool after a death (the deceased's RRIF rolled over).
-  const rrifShareFor = (id: MemberId, aliveById: Record<MemberId, boolean>): number => {
+  // A member's share of a pooled balance: their ownership while both are alive; the SURVIVOR holds
+  // the whole pool after a death (the deceased's accounts roll over). Single mode = the lone member.
+  const shareFor = (id: MemberId, base: Record<MemberId, number>, aliveById: Record<MemberId, boolean>): number => {
     if (!isCouple) return 1;
-    if (aliveById.memberA && aliveById.memberB) return baseShares[id];
+    if (aliveById.memberA && aliveById.memberB) return base[id];
     return aliveById[id] ? 1 : 0;
   };
 
@@ -219,8 +244,10 @@ export function runProjection(
       inflationPct: scenario.assumptions.inflationPct,
       indexingPct: scenario.assumptions.indexingPct,
     };
-    const returnFraction = pctToFraction(conditions.returnPct);
     const idxFraction = pctToFraction(conditions.indexingPct);
+    // Per-account-type returns when the path carries them; otherwise the single path return for all.
+    const rByType = conditions.returnByType;
+    const returnFor = (type: AccountType): number => pctToFraction(rByType?.[type] ?? conditions.returnPct);
 
     // Per-member age + alive status (death keyed to the member's OWN age).
     const ageById = { memberA: ageA, memberB: 0 } as Record<MemberId, number>;
@@ -241,13 +268,14 @@ export function runProjection(
 
     // --- Mandatory RRIF minimum (taxable), per member on their share of the registered pool ---
     const jan1Rrsp = balances.rrsp;
+    const jan1NonReg = balances.nonReg;
     const rrifMinById = { memberA: 0, memberB: 0 } as Record<MemberId, number>;
     let rrifMin = 0;
     for (const p of plans) {
       const age = ageById[p.id];
       const m =
         aliveById[p.id] && age >= RRIF_CONVERSION_AGE
-          ? rrifMinimum(jan1Rrsp * rrifShareFor(p.id, aliveById), age, { isOpeningYear: age === RRIF_CONVERSION_AGE })
+          ? rrifMinimum(jan1Rrsp * shareFor(p.id, baseRegShares, aliveById), age, { isOpeningYear: age === RRIF_CONVERSION_AGE })
           : 0;
       rrifMinById[p.id] = m;
       rrifMin += m;
@@ -290,14 +318,24 @@ export function runProjection(
       if (need > 1e-6) lastsToEndAge = false; // accounts exhausted before spending was met
     }
 
-    // Per-member taxable income = their lines + their share of registered withdrawals (TFSA excluded).
+    // --- Non-registered taxation (previously the deferred piece): annual interest + eligible
+    // dividends on the Jan-1 balance (taxed and left invested — a tax drag), plus the realized
+    // capital-gain content of any non-reg withdrawal this year. lib/accounts applies the gross-up
+    // (dividends) and 50% inclusion (gains); the yields / embedded-gain fraction come from config. ---
+    const nonRegTaxable =
+      interestTaxableAmount(jan1NonReg * nrc.interestYield) +
+      eligibleDividendTaxableAmount(jan1NonReg * nrc.eligibleDividendYield) +
+      capitalGainTaxableAmount(nonRegInc * nrc.unrealizedGainFraction);
+
+    // Per-member taxable income = their lines + share of registered withdrawals + share of non-reg income.
     const incomeById = { memberA: 0, memberB: 0 } as Record<MemberId, number>;
     for (const p of plans) {
       const L = linesById[p.id];
-      const regWd = rrifMinById[p.id] + rrifShareFor(p.id, aliveById) * rrifExtra;
-      incomeById[p.id] = L.pension + L.bridge + L.cpp + L.oas + L.secondCareer + L.lumpSum + regWd;
+      const regWd = rrifMinById[p.id] + shareFor(p.id, baseRegShares, aliveById) * rrifExtra;
+      const nonRegShare = shareFor(p.id, baseNonRegShares, aliveById) * nonRegTaxable;
+      incomeById[p.id] = L.pension + L.bridge + L.cpp + L.oas + L.secondCareer + L.lumpSum + regWd + nonRegShare;
     }
-    const taxableIncome = pension + bridge + cpp + oas + secondCareer + lumpSum + rrifMin + rrifExtra;
+    const taxableIncome = pension + bridge + cpp + oas + secondCareer + lumpSum + rrifMin + rrifExtra + nonRegTaxable;
 
     // --- Tax: couple-mode pension splitting when both alive, otherwise a single filer ---
     let tax: number;
@@ -306,9 +344,10 @@ export function runProjection(
         const L = linesById[p.id];
         return {
           age: ageById[p.id],
-          ordinaryIncome: L.cpp + L.oas + L.secondCareer + L.lumpSum,
+          // CPP/OAS/second-career/lump + the member's share of non-reg income (none splittable).
+          ordinaryIncome: L.cpp + L.oas + L.secondCareer + L.lumpSum + shareFor(p.id, baseNonRegShares, aliveById) * nonRegTaxable,
           psppPension: L.pension + L.bridge,
-          rrifIncome: rrifMinById[p.id] + rrifShareFor(p.id, aliveById) * rrifExtra,
+          rrifIncome: rrifMinById[p.id] + shareFor(p.id, baseRegShares, aliveById) * rrifExtra,
         };
       };
       tax = computeTax({
@@ -339,10 +378,10 @@ export function runProjection(
     const grossCash = guaranteedGross + rrifExtra + tfsaWd + nonRegInc; // all spendable cash
     const afterTax = grossCash - tax - oasClawbackAmount;
 
-    // --- End-of-year growth on the remaining balances ---
-    balances.rrsp = growAccount(balances.rrsp, returnFraction);
-    balances.tfsa = growAccount(balances.tfsa, returnFraction);
-    balances.nonReg = growAccount(balances.nonReg, returnFraction);
+    // --- End-of-year growth on the remaining balances, each type by its own return ---
+    balances.rrsp = growAccount(balances.rrsp, returnFor('rrsp'));
+    balances.tfsa = growAccount(balances.tfsa, returnFor('tfsa'));
+    balances.nonReg = growAccount(balances.nonReg, returnFor('nonReg'));
     const netWorth = balances.rrsp + balances.tfsa + balances.nonReg;
 
     rows.push({

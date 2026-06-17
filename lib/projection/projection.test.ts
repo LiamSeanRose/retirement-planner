@@ -1,16 +1,22 @@
 import { describe, expect, it } from 'vitest';
 import { runProjection, type TaxFn, type TaxMemberProfile } from './index';
 import { flatPath } from '../paths';
-import { rrifFactor } from '../accounts';
+import { capitalGainTaxableAmount, eligibleDividendTaxableAmount, interestTaxableAmount, rrifFactor } from '../accounts';
 import { DEFAULT_CONFIG } from '../config';
 import { householdTaxWithSplitting, totalTax } from '../tax';
 import { survivorAllowanceAnnual } from '../survivor';
-import type { Household, Scenario } from '../../types/planner';
+import type { Household, ReturnPathByType, Scenario } from '../../types/planner';
 
 const near = (a: number, b: number, tol = 1e-6): void => expect(Math.abs(a - b)).toBeLessThanOrEqual(tol);
 
 // Stub tax engine: flat 25% of taxable income — keeps the worked numbers hand-checkable.
 const stubTax: TaxFn = (ctx) => ctx.taxableIncome * 0.25;
+
+// Annual non-registered taxable income (interest + grossed-up dividends) on a held balance — the
+// tax drag the projection now adds to taxable income each year (B1). Driven by the dated config.
+const nonRegDistrib = (balance: number): number =>
+  interestTaxableAmount(balance * DEFAULT_CONFIG.nonRegistered.interestYield) +
+  eligibleDividendTaxableAmount(balance * DEFAULT_CONFIG.nonRegistered.eligibleDividendYield);
 
 // Group 1 (joined 2005), retires at 60 with 30 yrs service → unreduced (age 60 + 2 yrs).
 // lifetime = 1.375% × 69,180 × 30 + 2% × (100,000 − 69,180) × 30 = 47,028.75
@@ -60,8 +66,10 @@ describe('runProjection — pension, bridge step-down, and totals', () => {
     expect(r0.cpp).toBe(0);
     expect(r0.oas).toBe(0);
     expect(r0.rrifMin).toBe(0);
-    near(r0.taxableIncome, 60_000);
-    near(r0.afterTax, 45_000); // 60,000 − 25%
+    // pension (60,000) + the non-registered tax drag on the 300k balance.
+    const taxable = 60_000 + nonRegDistrib(300_000);
+    near(r0.taxableIncome, taxable);
+    near(r0.afterTax, 60_000 - 0.25 * taxable); // grossCash 60,000 − 25% stub tax
   });
 
   it('the bridge steps down to zero at 65 while the lifetime pension continues (indexed)', () => {
@@ -139,8 +147,10 @@ describe('runProjection — discretionary withdrawals fund spending and draw bal
   it('draws the spending gap from the first account in the order (RRSP), taxed and grown correctly', () => {
     const r0 = rows[0];
     near(r0.rrifExtra, 60_000); // 120,000 target − 60,000 pension
-    near(r0.taxableIncome, 120_000); // pension + bridge + discretionary RRSP
-    near(r0.afterTax, 90_000); // 120,000 − 25%
+    // pension + bridge + discretionary RRSP (120,000) + the non-registered tax drag.
+    const taxable = 120_000 + nonRegDistrib(300_000);
+    near(r0.taxableIncome, taxable);
+    near(r0.afterTax, 120_000 - 0.25 * taxable); // grossCash 120,000 − 25% stub tax
     near(r0.balances.rrsp, (500_000 - 60_000) * 1.04); // withdraw then grow
   });
 
@@ -253,5 +263,49 @@ describe('runProjection — single-person regression', () => {
     expect(res.rows[0].filingStatus).toBe('single');
     expect(res.rows[0].ageB).toBeUndefined();
     expect(res.reductionPct.memberB).toBeUndefined();
+  });
+});
+
+// ---- B1: per-account-type stochastic-ready returns + non-registered taxation ----
+
+describe('runProjection — per-account-type returns', () => {
+  it('grows each account type by its own return when the path carries returnByType', () => {
+    const hh: Household = {
+      province: 'ON',
+      memberA: { ...household.memberA, bestFiveAvgSalary: 0, pensionableServiceYears: 0, estimatedCppAt65Monthly: 0 },
+      accounts: [
+        { id: 'r', owner: 'memberA', type: 'rrsp', currentBalance: 100_000, riskProfile: { expectedReturn: 0, volatility: 0 } },
+        { id: 't', owner: 'memberA', type: 'tfsa', currentBalance: 100_000, riskProfile: { expectedReturn: 0, volatility: 0 } },
+        { id: 'n', owner: 'memberA', type: 'nonReg', currentBalance: 100_000, riskProfile: { expectedReturn: 0, volatility: 0 } },
+      ],
+    };
+    const perType: ReturnPathByType = [
+      { returnPct: 0, inflationPct: 2, indexingPct: 2, returnByType: { rrsp: 10, tfsa: 0, nonReg: 5 } },
+    ];
+    const r0 = runProjection(hh, baseScenario, perType, stubTax).rows[0];
+    near(r0.balances.rrsp, 110_000); // +10%
+    near(r0.balances.tfsa, 100_000); // +0%
+    near(r0.balances.nonReg, 105_000); // +5%
+  });
+});
+
+describe('runProjection — non-registered taxation', () => {
+  it('taxes annual interest + dividends on the balance and capital gains on a withdrawal', () => {
+    const hh: Household = {
+      province: 'ON',
+      memberA: { ...household.memberA, bestFiveAvgSalary: 0, pensionableServiceYears: 0, estimatedCppAt65Monthly: 0 },
+      accounts: [{ id: 'n', owner: 'memberA', type: 'nonReg', currentBalance: 200_000, riskProfile: { expectedReturn: 4, volatility: 10 } }],
+    };
+    const scn: Scenario = {
+      ...baseScenario,
+      withdrawalOrder: ['nonReg', 'rrsp', 'tfsa'],
+      assumptions: { ...baseAssumptions, targetAnnualSpending: 20_000 },
+    };
+    const r0 = runProjection(hh, scn, path, stubTax).rows[0];
+    near(r0.nonRegInc, 20_000); // withdrew 20,000 to fund the target (no other income)
+    // taxable = annual distributions on the 200k balance + the realized gain content of the 20k draw.
+    const expected = nonRegDistrib(200_000) + capitalGainTaxableAmount(20_000 * DEFAULT_CONFIG.nonRegistered.unrealizedGainFraction);
+    near(r0.taxableIncome, expected, 1e-3);
+    expect(r0.taxableIncome).toBeGreaterThan(0);
   });
 });
