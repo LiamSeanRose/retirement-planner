@@ -83,6 +83,17 @@ export interface Scenario {
      * Omitted ⇒ no discretionary withdrawals (only mandatory RRIF minimums draw accounts down).
      */
     targetAnnualSpending?: number;
+    /**
+     * Variable retirement spending across the "go-go / slow-go / no-go" phases (the empirical pattern
+     * that spending holds early then tapers with age). Scales `targetAnnualSpending`: 100% in the
+     * go-go years, `slowGoPct` from `slowGoAge`, `noGoPct` from `noGoAge`. Omitted ⇒ flat spending.
+     */
+    spendingPhases?: {
+      slowGoAge: number; // e.g. 75
+      noGoAge: number; // e.g. 85
+      slowGoPct: number; // fraction of the go-go base, e.g. 0.85
+      noGoPct: number; // e.g. 0.70
+    };
   };
   events: {
     /** WFA/VDP package → taxable Transition Support Measure lump sum in the departure year (§18). */
