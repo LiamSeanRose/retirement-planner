@@ -116,6 +116,13 @@ export interface Scenario {
      * the locked-in (LIRA) balance to the RRSP, where it follows the more flexible RRSP/RRIF rules.
      */
     lifUnlock50?: boolean;
+    /**
+     * Cash-wedge / bucket strategy: hold `years` × annual spending in a cash reserve, carved from the
+     * portfolio (non-registered, then TFSA) at retirement. The wedge earns a flat cash rate (insulated
+     * from the market) and is spent FIRST in down-market years so the volatile accounts aren't sold at
+     * a loss — sequence-of-returns mitigation. Omitted ⇒ no wedge.
+     */
+    cashWedge?: { years: number };
   };
   events: {
     /** WFA/VDP package → taxable Transition Support Measure lump sum in the departure year (§18). */
@@ -158,7 +165,9 @@ export interface YearRow {
   balances: Record<AccountType, number>;
   /** Principal-residence value this year (0 when no home). Separate from `netWorth` (liquid only). */
   homeValue: number;
-  netWorth: number; // LIQUID financial net worth (the four accounts); excludes the illiquid home
+  /** Cash-wedge reserve this year (0 when no wedge). Liquid — included in `netWorth`. */
+  cashWedge: number;
+  netWorth: number; // LIQUID net worth: the four accounts + the cash wedge; excludes the illiquid home
 }
 
 export interface PercentileBand {

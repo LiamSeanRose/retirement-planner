@@ -257,6 +257,26 @@ export function runProjection(
   let bracketIndexFactor = 1; // (1+CPI)^i — tax brackets/credits index with inflation, like CRA's
   let lastsToEndAge = true;
 
+  // Cash-wedge / bucket strategy: carve `years` × annual spending into a cash reserve, taken from the
+  // non-registered account first, then the TFSA (the tax-free-to-draw wrappers). A reallocation — net
+  // worth is unchanged at setup — that holds spending money OUT of the market, so down years can be
+  // funded from cash instead of selling depressed assets. Insulated: it earns a flat config cash rate.
+  let cashWedge = 0;
+  const cashFraction = pctToFraction(config.cashWedge.returnPct);
+  const wedgeYears = scenario.assumptions.cashWedge?.years ?? 0;
+  if (wedgeYears > 0 && spendTarget > 0) {
+    let target = wedgeYears * spendTarget;
+    const fromNonReg = Math.min(target, balances.nonReg);
+    balances.nonReg -= fromNonReg;
+    cashWedge += fromNonReg;
+    target -= fromNonReg;
+    if (target > 0) {
+      const fromTfsa = Math.min(target, balances.tfsa);
+      balances.tfsa -= fromTfsa;
+      cashWedge += fromTfsa;
+    }
+  }
+
   for (let i = 0; retirementAge + i <= endAge; i++) {
     const ageA = retirementAge + i;
     const year = retirementYear + i;
@@ -269,6 +289,10 @@ export function runProjection(
     // Per-account-type returns when the path carries them; otherwise the single path return for all.
     const rByType = conditions.returnByType;
     const returnFor = (type: AccountType): number => pctToFraction(rByType?.[type] ?? conditions.returnPct);
+    // Cash-wedge signal: was this a down-market year? (blended across the volatile accounts, or the
+    // single path return). In a down year the wedge is spent first so assets aren't sold low.
+    const marketReturnPct = rByType ? (rByType.rrsp + rByType.tfsa + rByType.nonReg + rByType.lira) / 4 : conditions.returnPct;
+    const isDownYear = marketReturnPct < 0;
 
     // Per-member age + alive status (death keyed to the member's OWN age).
     const ageById = { memberA: ageA, memberB: 0 } as Record<MemberId, number>;
@@ -301,6 +325,7 @@ export function runProjection(
     // --- Mandatory RRIF minimum (taxable), per member on their share of the registered pool ---
     const jan1Rrsp = balances.rrsp;
     const jan1NonReg = balances.nonReg;
+    const jan1Wedge = cashWedge;
     const rrifMinById = { memberA: 0, memberB: 0 } as Record<MemberId, number>;
     let rrifMin = 0;
     for (const p of plans) {
@@ -358,10 +383,20 @@ export function runProjection(
     let rrifExtra = 0;
     let tfsaWd = 0;
     let nonRegInc = 0;
+    let wedgeWd = 0;
     // "Go-go / slow-go / no-go" spending: scale the inflation-grown base by the member's life phase.
     const sp = scenario.assumptions.spendingPhases;
     const phaseMult = sp ? (ageA >= sp.noGoAge ? sp.noGoPct : ageA >= sp.slowGoAge ? sp.slowGoPct : 1) : 1;
     let need = Math.max(0, spendTarget * phaseMult - guaranteedGross);
+    // Cash-wedge: in a DOWN year, spend the (tax-free) cash reserve FIRST so the volatile accounts
+    // aren't sold at a loss — the sequence-of-returns defence. In up years it's left intact and tapped
+    // only as a last resort below.
+    if (isDownYear && need > 1e-6 && cashWedge > 0) {
+      const w = Math.min(need, cashWedge);
+      cashWedge -= w;
+      wedgeWd += w;
+      need -= w;
+    }
     if (need > 0) {
       for (const type of withdrawalOrder) {
         if (need <= 0) break;
@@ -382,8 +417,16 @@ export function runProjection(
         rrifExtra += withdrawn;
         need -= withdrawn;
       }
-      if (need > 1e-6) lastsToEndAge = false; // accounts exhausted before spending was met
     }
+    // The wedge is liquid: tap whatever remains (an up year, or a down year that drained it) before
+    // declaring a shortfall.
+    if (need > 1e-6 && cashWedge > 0) {
+      const w = Math.min(need, cashWedge);
+      cashWedge -= w;
+      wedgeWd += w;
+      need -= w;
+    }
+    if (need > 1e-6) lastsToEndAge = false; // all liquid assets exhausted before spending was met
 
     // --- Non-registered taxation (previously the deferred piece): annual interest + eligible
     // dividends on the Jan-1 balance (taxed and left invested — a tax drag), plus the realized
@@ -392,7 +435,8 @@ export function runProjection(
     const nonRegTaxable =
       interestTaxableAmount(jan1NonReg * nrc.interestYield) +
       eligibleDividendTaxableAmount(jan1NonReg * nrc.eligibleDividendYield) +
-      capitalGainTaxableAmount(nonRegInc * nrc.unrealizedGainFraction);
+      capitalGainTaxableAmount(nonRegInc * nrc.unrealizedGainFraction) +
+      interestTaxableAmount(jan1Wedge * cashFraction); // the cash wedge's return is fully-taxable interest
 
     // Per-member taxable income = their lines + share of registered withdrawals + share of non-reg income.
     const incomeById = { memberA: 0, memberB: 0 } as Record<MemberId, number>;
@@ -443,7 +487,7 @@ export function runProjection(
         ? clawbackOf(prevIncome.memberA, linesById.memberA.oas) + clawbackOf(prevIncome.memberB, linesById.memberB.oas)
         : clawbackOf(prevYearTaxableIncome, oas); // single filer reports all the household's OAS + income
 
-    const grossCash = guaranteedGross + rrifExtra + tfsaWd + nonRegInc; // all spendable cash
+    const grossCash = guaranteedGross + rrifExtra + tfsaWd + nonRegInc + wedgeWd; // all spendable cash
     const afterTax = grossCash - tax - oasClawbackAmount;
 
     // --- End-of-year growth on the remaining balances, each type by its own return ---
@@ -454,7 +498,9 @@ export function runProjection(
     // The home appreciates on its own track (defaults to this year's inflation). Net worth stays
     // LIQUID — the illiquid home is reported separately so a shortfall reflects spendable assets only.
     homeValue = growAccount(homeValue, pctToFraction(household.home?.appreciationPct ?? conditions.inflationPct));
-    const netWorth = balances.rrsp + balances.tfsa + balances.nonReg + balances.lira;
+    // The cash wedge earns a flat cash rate, insulated from the market path (the point of holding cash).
+    cashWedge = growAccount(cashWedge, cashFraction);
+    const netWorth = balances.rrsp + balances.tfsa + balances.nonReg + balances.lira + cashWedge;
 
     rows.push({
       year,
@@ -477,6 +523,7 @@ export function runProjection(
       filingStatus,
       balances: { rrsp: balances.rrsp, tfsa: balances.tfsa, nonReg: balances.nonReg, lira: balances.lira },
       homeValue,
+      cashWedge,
       netWorth,
     });
 
@@ -494,6 +541,7 @@ export function runProjection(
   const last = rows[rows.length - 1];
   const finalBalances = last ? last.balances : { rrsp: 0, tfsa: 0, nonReg: 0, lira: 0 };
   const finalHome = last ? last.homeValue : 0;
+  const finalWedge = last ? last.cashWedge : 0; // cash reserve — passes to the estate tax-free (no embedded gain)
   const finalYear = last ? last.year : retirementYear;
   // Estate after terminal tax at the FINAL death: ALL registered money (RRSP/RRIF + locked-in LIF) is
   // deemed-disposed (no surviving spouse — couple first-death rollover already happened in-stream),
@@ -510,7 +558,7 @@ export function runProjection(
     filingStatus: 'single',
     bracketIndexFactor: terminalFactor,
   });
-  const estateValue = registeredAtDeath - terminalTax + finalBalances.tfsa + finalBalances.nonReg + finalHome;
+  const estateValue = registeredAtDeath - terminalTax + finalBalances.tfsa + finalBalances.nonReg + finalHome + finalWedge;
 
   const reductionPct = isCouple
     ? { memberA: plans[0].reductionPct, memberB: plans[1].reductionPct }

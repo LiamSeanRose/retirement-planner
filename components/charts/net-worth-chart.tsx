@@ -10,6 +10,7 @@ const SERIES = [
   { key: 'lira', label: 'LIRA / LIF', color: 'var(--c-oas)' },
   { key: 'nonReg', label: 'Non-registered', color: 'var(--c-nonreg)' },
   { key: 'tfsa', label: 'TFSA', color: 'var(--c-tfsa)' },
+  { key: 'cash', label: 'Cash wedge', color: 'var(--c-cpp)' },
 ] as const;
 
 export function NetWorthChart({ rows }: { rows: YearRow[] }) {
@@ -20,6 +21,7 @@ export function NetWorthChart({ rows }: { rows: YearRow[] }) {
     lira: r.balances.lira,
     tfsa: r.balances.tfsa,
     nonReg: r.balances.nonReg,
+    cash: r.cashWedge,
   }));
 
   return (
