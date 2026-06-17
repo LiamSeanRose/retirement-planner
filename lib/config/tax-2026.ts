@@ -131,17 +131,33 @@ export const ONTARIO_HEALTH_PREMIUM = [
   { upTo: null as number | null, base: 750, over: 200_000, marginal: 0.25, cap: 900 },
 ];
 
-// ---- Other provinces/territories: structure present, values UNVERIFIED (~2025; confirm 2026) ----
+// ---- Other provinces/territories ----
+// `u` = unverified placeholder; `v` = VERIFIED 2026 (TaxTips.ca, retrieved 2026-06; per-province
+// confirmation status noted). Provincial low-income reductions / dividend & other credits beyond the
+// BPA are not modelled — see lib/ENGINE-NOTES.md.
 const u = (
   brackets: TaxBracket[],
   basicPersonalAmount: number,
   note: string,
 ): ProvinceTax => ({ verified: false, brackets, basicPersonalAmount, creditRate: brackets[0].rate, note: `UNVERIFIED ~2025 values — confirm 2026: ${note}` });
 
+const v = (
+  brackets: TaxBracket[],
+  basicPersonalAmount: number,
+  note: string,
+): ProvinceTax => ({ verified: true, brackets, basicPersonalAmount, creditRate: brackets[0].rate, note: `VERIFIED 2026 (TaxTips.ca, retrieved 2026-06): ${note}` });
+
 const OTHERS: Record<Exclude<Province, 'ON'>, ProvinceTax> = {
+  // QC 2026 are INDEXATION ESTIMATES (×1.0205) — Quebec's Ministry of Finance has not confirmed 2026
+  // figures (TaxTips.ca), so this stays verified:false. 16.5% federal abatement applied; Quebec's
+  // distinct credit rules are approximated by the lowest-rate credit valuation.
   QC: {
-    ...u([{ upTo: 53_255, rate: 0.14 }, { upTo: 106_495, rate: 0.19 }, { upTo: 129_590, rate: 0.24 }, { upTo: null, rate: 0.2575 }], 18_571, 'QC brackets ~2025 (confirm 2026). Federal abatement IS applied; distinct refundable/credit rules still approximated by the lowest-rate credit valuation'),
-    federalAbatementRate: 0.165, // 16.5% federal abatement for Quebec residents
+    verified: false,
+    brackets: [{ upTo: 54_345, rate: 0.14 }, { upTo: 108_680, rate: 0.19 }, { upTo: 132_245, rate: 0.24 }, { upTo: null, rate: 0.2575 }],
+    basicPersonalAmount: 18_952,
+    creditRate: 0.14,
+    federalAbatementRate: 0.165,
+    note: 'UNVERIFIED — QC 2026 indexation estimate (×1.0205), not yet confirmed by Quebec Finance. Federal abatement applied; distinct QC credits approximated by lowest-rate valuation.',
   },
   // VERIFIED 2026 — TaxTips.ca/taxrates/bc.htm (retrieved 2026-06). BC raised its lowest rate to
   // 5.60% for 2026 (the 5.06% previously here was the 2025 rate); thresholds indexed 2.2%. BC's
@@ -176,15 +192,18 @@ const OTHERS: Record<Exclude<Province, 'ON'>, ProvinceTax> = {
     creditRate: 0.08,
     note: 'VERIFIED 2026 (TaxTips.ca).',
   },
-  MB: u([{ upTo: 47_000, rate: 0.108 }, { upTo: 100_000, rate: 0.1275 }, { upTo: null, rate: 0.174 }], 15_780, 'MB'),
-  SK: u([{ upTo: 53_463, rate: 0.105 }, { upTo: 152_750, rate: 0.125 }, { upTo: null, rate: 0.145 }], 18_991, 'SK'),
-  NB: u([{ upTo: 51_306, rate: 0.094 }, { upTo: 102_614, rate: 0.14 }, { upTo: 190_060, rate: 0.16 }, { upTo: null, rate: 0.195 }], 13_396, 'NB'),
-  NS: u([{ upTo: 29_590, rate: 0.0879 }, { upTo: 59_180, rate: 0.1495 }, { upTo: 93_000, rate: 0.1667 }, { upTo: 150_000, rate: 0.175 }, { upTo: null, rate: 0.21 }], 8_744, 'NS began indexing in 2025'),
-  PE: u([{ upTo: 33_328, rate: 0.095 }, { upTo: 64_656, rate: 0.1347 }, { upTo: 105_000, rate: 0.166 }, { upTo: 140_000, rate: 0.1762 }, { upTo: null, rate: 0.19 }], 14_250, 'PE'),
-  NL: u([{ upTo: 44_192, rate: 0.087 }, { upTo: 88_382, rate: 0.145 }, { upTo: 157_792, rate: 0.158 }, { upTo: 220_910, rate: 0.178 }, { upTo: 282_214, rate: 0.198 }, { upTo: 564_429, rate: 0.208 }, { upTo: 1_128_858, rate: 0.213 }, { upTo: null, rate: 0.218 }], 11_067, 'NL'),
-  YT: u([{ upTo: 57_375, rate: 0.064 }, { upTo: 114_750, rate: 0.09 }, { upTo: 177_882, rate: 0.109 }, { upTo: 500_000, rate: 0.128 }, { upTo: null, rate: 0.15 }], 16_452, 'YT BPA tracks the federal amount'),
-  NT: u([{ upTo: 51_964, rate: 0.059 }, { upTo: 103_930, rate: 0.086 }, { upTo: 168_967, rate: 0.122 }, { upTo: null, rate: 0.1405 }], 17_842, 'NT'),
-  NU: u([{ upTo: 54_707, rate: 0.04 }, { upTo: 109_413, rate: 0.07 }, { upTo: 177_881, rate: 0.09 }, { upTo: null, rate: 0.115 }], 18_767, 'NU'),
+  MB: v([{ upTo: 47_000, rate: 0.108 }, { upTo: 100_000, rate: 0.1275 }, { upTo: null, rate: 0.174 }], 15_780, 'indexation frozen — 2026 thresholds/BPA = 2025 (= 2024) levels'),
+  SK: v([{ upTo: 54_532, rate: 0.105 }, { upTo: 155_805, rate: 0.125 }, { upTo: null, rate: 0.145 }], 20_381, '2% indexation'),
+  NB: v([{ upTo: 52_333, rate: 0.094 }, { upTo: 104_666, rate: 0.14 }, { upTo: 193_861, rate: 0.16 }, { upTo: null, rate: 0.195 }], 13_664, '2% indexation'),
+  NS: v([{ upTo: 30_995, rate: 0.0879 }, { upTo: 61_991, rate: 0.1495 }, { upTo: 97_417, rate: 0.1667 }, { upTo: 157_124, rate: 0.175 }, { upTo: null, rate: 0.21 }], 11_932, '1.6% indexation'),
+  PE: v([{ upTo: 33_928, rate: 0.095 }, { upTo: 65_820, rate: 0.1347 }, { upTo: 106_890, rate: 0.166 }, { upTo: 142_250, rate: 0.1762 }, { upTo: 200_000, rate: 0.19 }, { upTo: null, rate: 0.2 }], 15_000, 'confirmed to CRA'),
+  NL: v([{ upTo: 44_678, rate: 0.087 }, { upTo: 89_354, rate: 0.145 }, { upTo: 159_528, rate: 0.158 }, { upTo: 223_340, rate: 0.178 }, { upTo: 285_319, rate: 0.198 }, { upTo: 570_638, rate: 0.208 }, { upTo: 1_141_275, rate: 0.213 }, { upTo: null, rate: 0.218 }], 13_094, 'confirmed to CRA'),
+  // Yukon uses the federal thresholds for its first 3 brackets; top bracket is $500k. The 12.93%
+  // "effective" rate TaxTips shows on $181,440–$258,482 is the federal BPA-grind interaction, not a
+  // Yukon statutory rate — Yukon's statutory rate there is 12.8%. BPA tracks the federal amount.
+  YT: v([{ upTo: 58_523, rate: 0.064 }, { upTo: 117_045, rate: 0.09 }, { upTo: 181_440, rate: 0.109 }, { upTo: 500_000, rate: 0.128 }, { upTo: null, rate: 0.15 }], 16_452, 'federal-aligned thresholds, $500k top; BPA tracks federal; effective-rate BPA-grind quirk not modelled'),
+  NT: v([{ upTo: 53_003, rate: 0.059 }, { upTo: 106_009, rate: 0.086 }, { upTo: 172_346, rate: 0.122 }, { upTo: null, rate: 0.1405 }], 18_198, 'confirmed to CRA'),
+  NU: v([{ upTo: 55_801, rate: 0.04 }, { upTo: 111_602, rate: 0.07 }, { upTo: 181_439, rate: 0.09 }, { upTo: null, rate: 0.115 }], 19_659, 'confirmed to CRA'),
 };
 
 export const TAX_CONFIG_2026: TaxConfig = {
