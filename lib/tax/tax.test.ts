@@ -50,12 +50,12 @@ describe('federalTax (after credits)', () => {
 
 describe('Ontario provincial tax', () => {
   it('$50k: brackets − BPA credit + health premium, no surtax yet', () => {
-    // 2,525 − 12,747×5.05% = 1,881.28 ; + $600 health premium = 2,481.28
-    near(provincialTax(50_000, 'ON'), 2_481.28, 1);
+    // 2,525 − 12,989×5.05% = 1,869.06 ; + $600 health premium = 2,469.06
+    near(provincialTax(50_000, 'ON'), 2_469.06, 1);
   });
   it('$150k: surtax + health premium materially raise the bill', () => {
-    near(provincialTax(150_000, 'ON'), 15_189.46, 2);
-    // sanity: well above brackets-after-credits alone (~11,720) because of surtax
+    near(provincialTax(150_000, 'ON'), 15_170.39, 2);
+    // sanity: well above brackets-after-credits alone (~11,708) because of surtax
     expect(provincialTax(150_000, 'ON')).toBeGreaterThan(14_000);
   });
 });

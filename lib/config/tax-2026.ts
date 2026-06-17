@@ -106,11 +106,11 @@ const ONTARIO_2026: ProvinceTax = {
     { upTo: 220_000, rate: 0.1216 },
     { upTo: null, rate: 0.1316 },
   ],
-  basicPersonalAmount: 12_747, // ON BPA 2026 (TODO: confirm exact indexed value)
+  basicPersonalAmount: 12_989, // ON BPA 2026 — VERIFIED (TaxTips.ca; 2025 $12,747 × 1.019 indexation)
   creditRate: 0.0505,
-  ageAmountMax: 6_054, // ON age amount (TODO confirm)
-  ageAmountThreshold: 46_432,
-  pensionIncomeAmount: 1_796,
+  ageAmountMax: 6_342, // ON age amount 2026 (65+) — VERIFIED (TaxTips.ca)
+  ageAmountThreshold: 46_432, // ON age-amount phase-out start approximated by the federal threshold
+  pensionIncomeAmount: 1_796, // ON pension income amount 2026 — VERIFIED (TaxTips.ca)
   surtax: [
     { overProvincialTax: 5_818, rate: 0.2 },
     { overProvincialTax: 7_446, rate: 0.36 },

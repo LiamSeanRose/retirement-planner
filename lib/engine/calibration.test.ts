@@ -62,8 +62,10 @@ describe('end-to-end calibration — reference household', () => {
   it('pins the certified end-to-end totals (a conscious update is required if the engine model changes)', () => {
     expect(result.rows.length).toBe(36); // ages 60..95 inclusive
     expect(result.totals.lastsToEndAge).toBe(true);
-    expect(Math.round(result.totals.lifetimeTax)).toBe(1_294_052);
-    expect(Math.round(result.totals.lifetimeAfterTax)).toBe(3_538_639);
-    expect(Math.round(result.totals.estateValue)).toBe(173_426);
+    // Re-certified after the 2026 Ontario BPA was verified to $12,989 (was $12,747): lifetime tax
+    // falls $704, after-tax rises the same $704, estate rises $19 (lower terminal tax). See git history.
+    expect(Math.round(result.totals.lifetimeTax)).toBe(1_293_348);
+    expect(Math.round(result.totals.lifetimeAfterTax)).toBe(3_539_343);
+    expect(Math.round(result.totals.estateValue)).toBe(173_445);
   });
 });
