@@ -157,7 +157,7 @@ const OTHERS: Record<Exclude<Province, 'ON'>, ProvinceTax> = {
     basicPersonalAmount: 18_952,
     creditRate: 0.14,
     federalAbatementRate: 0.165,
-    note: 'UNVERIFIED — QC 2026 indexation estimate (×1.0205), not yet confirmed by Quebec Finance. Federal abatement applied; distinct QC credits approximated by lowest-rate valuation.',
+    note: 'UNVERIFIED — QC 2026 = 2025 brackets/BPA × the OFFICIAL 2.05% indexation (Revenu Québec confirms 2.05% indexation with rates unchanged at 14/19/24/25.75%); final published table pending. Federal abatement applied; distinct QC credits approximated by lowest-rate valuation.',
   },
   // VERIFIED 2026 — TaxTips.ca/taxrates/bc.htm (retrieved 2026-06). BC raised its lowest rate to
   // 5.60% for 2026 (the 5.06% previously here was the 2025 rate); thresholds indexed 2.2%. BC's
