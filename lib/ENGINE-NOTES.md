@@ -140,10 +140,69 @@ deflate-reinflate slightly over-states it in late years (second-order vs the tot
    start-age nominal amounts (pension **is** indexed) — the main remaining inflation inconsistency, a
    candidate refinement.
 3. RRIF conversion fixed at 71; no earlier-conversion or partial-conversion lever.
-4. Provincial tax outside Ontario omits province-specific credits/surtaxes beyond the BPA.
+4. Provincial tax outside Ontario omits province-specific *credits* beyond the BPA (low-income reductions,
+   provincial age/pension/dividend credits). SURTAXES are not a gap: as of 2026 **only Ontario levies a
+   provincial surtax** (modelled); PEI abolished its surtax in 2024 (now a 5-bracket system, as configured)
+   and no other province has one (§9).
 5. Non-registered taxation is assumption-based (no per-lot ACB tracking).
 6. Monte Carlo holds inflation and longevity deterministic; only returns are stochastic.
 7. Lifetime tax is nominal-cumulative, not present-valued.
 8. All 13 provinces/territories are 2026-verified (TaxTips.ca) **except Quebec**, whose 2026 figures are
    indexation estimates pending QC Finance confirmation. Provincial credits beyond the BPA (and ON surtax/
    health premium + QC abatement) are not modelled, so non-ON provincial tax is still an approximation.
+
+## 9. Refinement research — primary sources (researched 2026-06-17)
+
+Authoritative sourcing for each documented refinement (canada.ca / Treasury Board / Revenu Québec are
+primary; secondary references corroborate). These resolve or scope the open items in §8 and the engine
+gaps below.
+
+### CPP/OAS CPI-indexing (the deferred refinement, §8 item 2)
+- **Mechanics — confirmed.** OAS is indexed to the CPI **quarterly** (Jan/Apr/Jul/Oct); CPP is indexed to
+  the CPI **annually** (January). Neither benefit can ever decrease. → A correct indexing pass grows each
+  benefit by CPI from its start; the projection's flat-nominal CPP/OAS understate later-year income.
+  Source: [canada.ca — CPP and the CPI](https://www.canada.ca/en/services/benefits/publicpensions/cpp/receive-benefits/consumer-price-index.html);
+  [canada.ca — OAS payment amounts](https://www.canada.ca/en/services/benefits/publicpensions/old-age-security/payments.html).
+- **Why it stalled — now resolved.** The CPP **survivor + retirement combined benefit is capped at the
+  maximum *retirement* pension** (NOT the sum), and the **enhanced (post-2019) component is exempt** from
+  that cap. The cap is itself CPI-indexed (it is the max retirement pension), so a correct pass indexes the
+  cap in `lib/survivor` by the same factor. Source:
+  [canada.ca — CPP Survivor's Pension](https://www.canada.ca/en/services/benefits/publicpensions/cpp/cpp-survivor-pension.html);
+  [Question Period Note: CPP Combined Benefits](https://search.open.canada.ca/qpnotes/record/esdc-edsc,Seniors-JUN2022-002).
+- **CPP survivor formula** (for the same future pass): survivor **under 65** = a flat-rate portion **+ 37.5%**
+  of the contributor's retirement pension; **65+** = **60%** of it (when not already drawing own CPP). Source:
+  [canada.ca — Survivor's Pension](https://www.canada.ca/en/services/benefits/publicpensions/cpp/cpp-survivor-pension.html).
+- **Break-even note:** with CPP/OAS indexed nominally, break-even must be computed in REAL terms (deflate by
+  CPI) to stay equal to the canonical ~74 (CPP) / ~82 (OAS); a naive nominal crossover reads early (~72/~80).
+
+### Quebec 2026 tax (§8 item 8)
+- Revenu Québec confirms the 2026 personal-tax system is **indexed by 2.05%** with **rates unchanged**
+  (14 / 19 / 24 / 25.75%). The configured QC values (2025 brackets/BPA × 1.0205, e.g. BPA $18,952) match this
+  official indexation — stronger than "best-effort," though QC has not published the final confirmed table, so
+  it stays `verified: false`. Source:
+  [Revenu Québec — Income Tax Rates](https://www.revenuquebec.ca/en/citizens/income-tax-return/completing-your-income-tax-return/income-tax-rates/).
+
+### Provincial surtaxes (§8 item 4) — closed
+- **Only Ontario** levies a provincial surtax in 2026 (20% / 36% tiers, modelled). **PEI abolished its surtax
+  in 2024**, replacing 3 brackets + surtax with a 5-bracket system (as configured). No other province has one.
+  Source: [EY — PEI Budget 2023-24](https://www.ey.com/en_ca/technical/tax/tax-alerts/2023/tax-alert-2023-no-22);
+  [PwC — Canada individual taxes](https://taxsummaries.pwc.com/canada/individual/taxes-on-personal-income).
+
+### Public-service §17 items
+- **Severance / retirement allowance:** accumulation of severance for **voluntary resignation/retirement was
+  eliminated (2012–13)** across the core public administration's collective agreements (members cashed out or
+  froze accrued amounts). So a *retirement allowance* is largely a legacy/frozen item — the engine NOT adding
+  one by default is correct; only **unused-vacation payout** and **WFA/VDP (TSM)** packages are real lump sums.
+  Source: [TBS — Severance Pay](https://www.tbs-sct.canada.ca/pubs_pol/hrpubs/TBM_11A/sp-idpr-eng.asp);
+  [canada.ca — Workforce Adjustment](https://www.canada.ca/en/government/publicservice/workforce/workforce-adjustment.html).
+- **PSHCP retiree health costs:** pensioners pay **monthly PSHCP contributions** (Supplementary coverage),
+  moving toward a **50:50 cost-share** (those retired/retiring after 31 Mar 2025 affected unless a Relief
+  Provision applies); exact rates are in **Schedule V** of the PSHCP Directive (NJC). A real retiree expense,
+  modellable as an indexed annual cost line. Source:
+  [TBS — Pensioner contribution-rate changes](https://www.canada.ca/en/treasury-board-secretariat/services/benefit-plans/health-care-plan/frequently-asked-questions/changes-pensioners-contribution-rates.html);
+  [NJC — PSHCP Schedule V rates](https://www.njc-cnm.gc.ca/directive/d9/v283/s827/en).
+- **PSPP survivor pension:** a survivor allowance equal to **one-half of the pension the member would have
+  received before age 65** (computed **before** any early-retirement reduction), **payable immediately and
+  fully indexed annually** — corroborates `survivorAllowanceAnnual` in `lib/survivor` (≈50% of the unreduced
+  lifetime pension). Source:
+  [canada.ca — Benefits for survivors (PSPP)](https://www.canada.ca/en/public-services-procurement/services/pay-pension/public-service-pension-plan/survivor-dependant/benefits-survivors.html).
