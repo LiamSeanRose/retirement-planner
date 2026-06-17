@@ -2,13 +2,14 @@
  * END-TO-END CALIBRATION — pins the corrected totals for a documented reference household and
  * certifies the lifetime-tax finding (engine accuracy pass, item 2).
  *
- * FINDING: the dashboard's large cumulative lifetime tax is CORRECT — not a bug or a double-count.
- *  - `totals.lifetimeTax === Σ rows.tax` EXACTLY (asserted) — terminal/estate tax is reported
- *    separately in `totals.estateValue` and is never folded into lifetimeTax.
- *  - Each year's tax is the real bracket math; the figure is large because it is a NOMINAL cumulative
- *    over 36 years (ages 60→95) and mandatory RRIF minimums from age 72 stack on the indexed pension
- *    + CPP + OAS at high marginal rates — exactly the burden the RRSP meltdown reduces. (Present-
- *    valued, or with a meltdown, it is far lower.) The UI should label this nominal-cumulative.
+ * FINDING: lifetime tax is a NOMINAL cumulative over 36 years (ages 60→95) of the real per-year bracket
+ * math. `totals.lifetimeTax === Σ rows.tax` EXACTLY (asserted); terminal/estate tax is reported
+ * separately in `totals.estateValue`, never folded in.
+ *  - Tax brackets/credits are now CPI-INDEXED each projection year (as CRA does in reality) via the
+ *    engine adapter's deflate-tax-reinflate. This removed ~$319k of spurious bracket creep from the
+ *    earlier fixed-2026-bracket figure (1,293,348 → 974,490). The remaining burden is the genuine
+ *    forced-RRIF-minimum stack from age 72 — exactly what the RRSP meltdown reduces. (Present-valued,
+ *    or with a meltdown, lower still.)
  *
  * REFERENCE HOUSEHOLD (Dad can reproduce in the official tools): Ontario, born 1979, Group 1 (plan
  * join 2005), $100k best-5 salary, 30 yrs service, retire 60; CPP $1,200/mo and OAS both at 65; one
@@ -62,10 +63,11 @@ describe('end-to-end calibration — reference household', () => {
   it('pins the certified end-to-end totals (a conscious update is required if the engine model changes)', () => {
     expect(result.rows.length).toBe(36); // ages 60..95 inclusive
     expect(result.totals.lastsToEndAge).toBe(true);
-    // Re-certified after the 2026 Ontario BPA was verified to $12,989 (was $12,747): lifetime tax
-    // falls $704, after-tax rises the same $704, estate rises $19 (lower terminal tax). See git history.
-    expect(Math.round(result.totals.lifetimeTax)).toBe(1_293_348);
-    expect(Math.round(result.totals.lifetimeAfterTax)).toBe(3_539_343);
-    expect(Math.round(result.totals.estateValue)).toBe(173_445);
+    // Re-certified after tax brackets/credits were made CPI-indexed (the deflate-tax-reinflate seam):
+    // this removed ~$319k of spurious bracket creep — lifetime tax 1,293,348 → 974,490, after-tax up the
+    // same amount, estate up $30,404 (lower terminal tax). A conscious update accompanies model changes.
+    expect(Math.round(result.totals.lifetimeTax)).toBe(974_490);
+    expect(Math.round(result.totals.lifetimeAfterTax)).toBe(3_858_200);
+    expect(Math.round(result.totals.estateValue)).toBe(203_849);
   });
 });
