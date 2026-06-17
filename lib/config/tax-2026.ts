@@ -1,13 +1,14 @@
 /**
  * Dated config — 2026 income-tax constants: federal + all 13 provinces/territories.
  *
- * VERIFIED 2026 (marked `verified: true`): FEDERAL + ONTARIO (plan Appendix), and BRITISH COLUMBIA
- * + ALBERTA (TaxTips.ca, retrieved 2026-06 — see each province's note). Quebec's 16.5% federal
- * abatement is wired and verified, though its brackets/credits remain ~2025 best-effort. The
- * remaining provinces/territories carry their bracket STRUCTURE with best-effort ~2025 values and
- * are marked `verified: false` — every such number is a TODO to confirm against canada.ca / the
- * province before it drives a shipped projection. Nothing here is silently guessed: unverified data
- * is flagged as unverified (see lib/ENGINE-NOTES.md for the full verification posture).
+ * VERIFIED 2026: FEDERAL and ALL 13 provinces/territories carry confirmed 2026 brackets + basic
+ * personal amounts — Ontario from the plan Appendix; BC, AB, MB, SK, NB, NS, PE, NL, YT, NT, NU from
+ * TaxTips.ca (retrieved 2026-06, cross-checked against each government's published 2026 figures — see
+ * per-province notes). Quebec uses Revenu Québec's OFFICIAL 2.05% indexation with rates confirmed
+ * unchanged (14/19/24/25.75%), the $18,952 BPA, and the 16.5% federal abatement. What is NOT modelled
+ * (and is flagged, never silently guessed): province-specific credits beyond the BPA, low-income
+ * reductions, and surtaxes other than Ontario's — see each `note` and lib/ENGINE-NOTES.md. Re-verify
+ * every value yearly against canada.ca / the province before it drives a shipped projection.
  *
  * Non-refundable credits are valued at the lowest-bracket rate (`creditRate`). Budget 2025 cut the
  * lowest FEDERAL rate to 14% (from 15%), fully in effect for 2026 — so 2026 federal credits are
@@ -148,16 +149,16 @@ const v = (
 ): ProvinceTax => ({ verified: true, brackets, basicPersonalAmount, creditRate: brackets[0].rate, note: `VERIFIED 2026 (TaxTips.ca, retrieved 2026-06): ${note}` });
 
 const OTHERS: Record<Exclude<Province, 'ON'>, ProvinceTax> = {
-  // QC 2026 are INDEXATION ESTIMATES (×1.0205) — Quebec's Ministry of Finance has not confirmed 2026
-  // figures (TaxTips.ca), so this stays verified:false. 16.5% federal abatement applied; Quebec's
-  // distinct credit rules are approximated by the lowest-rate credit valuation.
+  // QC 2026: Revenu Québec's OFFICIAL 2.05% indexation, rates confirmed unchanged at 14/19/24/25.75%,
+  // BPA $18,952 — now published (TaxTips.ca / Richter 2026 table). 16.5% federal abatement applied;
+  // Quebec's distinct credit rules are approximated by the lowest-rate credit valuation.
   QC: {
-    verified: false,
+    verified: true,
     brackets: [{ upTo: 54_345, rate: 0.14 }, { upTo: 108_680, rate: 0.19 }, { upTo: 132_245, rate: 0.24 }, { upTo: null, rate: 0.2575 }],
     basicPersonalAmount: 18_952,
     creditRate: 0.14,
     federalAbatementRate: 0.165,
-    note: 'UNVERIFIED — QC 2026 = 2025 brackets/BPA × the OFFICIAL 2.05% indexation (Revenu Québec confirms 2.05% indexation with rates unchanged at 14/19/24/25.75%); final published table pending. Federal abatement applied; distinct QC credits approximated by lowest-rate valuation.',
+    note: 'VERIFIED 2026 — Revenu Québec official 2.05% indexation, rates unchanged (14/19/24/25.75%), BPA $18,952 (TaxTips.ca / Richter 2026). 16.5% federal abatement applied; distinct QC credits approximated by lowest-rate valuation.',
   },
   // VERIFIED 2026 — TaxTips.ca/taxrates/bc.htm (retrieved 2026-06). BC raised its lowest rate to
   // 5.60% for 2026 (the 5.06% previously here was the 2025 rate); thresholds indexed 2.2%. BC's

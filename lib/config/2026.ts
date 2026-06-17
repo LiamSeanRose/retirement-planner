@@ -122,6 +122,9 @@ export const CONFIG_2026: YearConfig = {
     latestStartAge: 70,
     deferralPerMonth: 0.006,
     maxDeferralMonths: 60,
+    // OAS is re-indexed to CPI QUARTERLY; this is the Jan–Mar 2026 maximum (rises through the year,
+    // ~$743 Apr–Jun, ~$752 from Jul). A representative early-2026 figure for planning — slightly
+    // conservative vs the late-2026 amount. The projection then grows it by the scenario's indexing.
     maxMonthly65to74: 742.31,
     bump75Pct: 0.1,
     clawbackRate: 0.15,
