@@ -18,8 +18,8 @@ describe('config sanity', () => {
       expect(TAX_CONFIG_2026.provinces[p].brackets.length).toBeGreaterThan(0);
     }
   });
-  it('all provinces/territories are 2026-verified except Quebec (awaiting QC Finance confirmation)', () => {
-    const unverified = ['QC'];
+  it('all 13 provinces/territories carry confirmed 2026 figures', () => {
+    const unverified: string[] = []; // QC upgraded once Revenu Québec's 2.05% indexation was published
     for (const p of ALL) {
       expect(TAX_CONFIG_2026.provinces[p].verified).toBe(!unverified.includes(p));
     }

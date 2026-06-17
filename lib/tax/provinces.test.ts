@@ -3,9 +3,10 @@
  * sanity of all 13 federal + provincial/territorial bracket sets, plus spot-checks of the verified
  * provinces' tax math.
  *
- * Verified for 2026: Federal, Ontario (plan Appendix), British Columbia + Alberta (TaxTips.ca, 2026-06).
- * Quebec's 16.5% federal abatement is verified; its brackets remain ~2025 best-effort. The remaining
- * provinces/territories are ~2025 best-effort pending 2026 confirmation. See lib/ENGINE-NOTES.md.
+ * Verified for 2026: Federal + all 13 provinces/territories — Ontario (plan Appendix), the rest from
+ * TaxTips.ca (2026-06, cross-checked against each government's 2026 figures). Quebec uses Revenu
+ * Québec's official 2.05% indexation, rates unchanged, plus the 16.5% federal abatement. See
+ * lib/ENGINE-NOTES.md for the full posture.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -15,12 +16,12 @@ import { provincialTax } from './index';
 const near = (a: number, b: number, tol = 1): void => expect(Math.abs(a - b)).toBeLessThanOrEqual(tol);
 
 const ALL: Province[] = ['ON', 'QC', 'BC', 'AB', 'MB', 'SK', 'NB', 'NS', 'PE', 'NL', 'YT', 'NT', 'NU'];
-// All 13 are 2026-verified (TaxTips.ca, retrieved 2026-06) EXCEPT Quebec, whose 2026 figures are
-// indexation estimates not yet confirmed by Quebec's Ministry of Finance.
-const UNVERIFIED: Province[] = ['QC'];
+// All 13 now carry confirmed 2026 figures (TaxTips.ca / each government, retrieved 2026-06; QC via
+// Revenu Québec's official 2.05% indexation). Any future regression to an estimate must be flagged.
+const UNVERIFIED: Province[] = [];
 
 describe('province verification posture (honest flags — never a silent guess)', () => {
-  it('all provinces/territories are 2026-verified except Quebec', () => {
+  it('all 13 provinces/territories carry confirmed 2026 figures', () => {
     for (const p of ALL) {
       expect(TAX_CONFIG_2026.provinces[p].verified).toBe(!UNVERIFIED.includes(p));
     }
