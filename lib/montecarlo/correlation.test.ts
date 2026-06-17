@@ -6,6 +6,7 @@ const dist = {
   rrsp: { meanPct: 5, volPct: 15 },
   tfsa: { meanPct: 5, volPct: 15 },
   nonReg: { meanPct: 4, volPct: 10 },
+  lira: { meanPct: 5, volPct: 15 },
 };
 
 // A run whose net worth depends on the year's per-account returns, so the aggregate reflects the draws.

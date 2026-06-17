@@ -280,7 +280,7 @@ describe('runProjection — per-account-type returns', () => {
       ],
     };
     const perType: ReturnPathByType = [
-      { returnPct: 0, inflationPct: 2, indexingPct: 2, returnByType: { rrsp: 10, tfsa: 0, nonReg: 5 } },
+      { returnPct: 0, inflationPct: 2, indexingPct: 2, returnByType: { rrsp: 10, tfsa: 0, nonReg: 5, lira: 0 } },
     ];
     const r0 = runProjection(hh, baseScenario, perType, stubTax).rows[0];
     near(r0.balances.rrsp, 110_000); // +10%

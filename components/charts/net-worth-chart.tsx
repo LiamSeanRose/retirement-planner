@@ -6,6 +6,7 @@ import { AXIS, ChartShell, GRID_STROKE, MoneyTooltip, moneyAxisTick } from './ch
 
 const SERIES = [
   { key: 'rrsp', label: 'RRSP / RRIF', color: 'var(--c-reg)' },
+  { key: 'lira', label: 'LIRA / LIF', color: 'var(--c-oas)' },
   { key: 'nonReg', label: 'Non-registered', color: 'var(--c-nonreg)' },
   { key: 'tfsa', label: 'TFSA', color: 'var(--c-tfsa)' },
 ] as const;
@@ -14,6 +15,7 @@ export function NetWorthChart({ rows }: { rows: YearRow[] }) {
   const data = rows.map((r) => ({
     age: r.ageA,
     rrsp: r.balances.rrsp,
+    lira: r.balances.lira,
     tfsa: r.balances.tfsa,
     nonReg: r.balances.nonReg,
   }));
