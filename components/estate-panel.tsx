@@ -22,9 +22,10 @@ function Line({ label, value, tone = 'ink', strong }: { label: string; value: st
 
 export function EstatePanel({ household, scenario, result }: { household: Household; scenario: Scenario; result: ScenarioResult }) {
   const data = useMemo(() => {
-    const final = result.rows.at(-1)?.balances ?? { rrsp: 0, tfsa: 0, nonReg: 0 };
+    const final = result.rows.at(-1)?.balances ?? { rrsp: 0, tfsa: 0, nonReg: 0, lira: 0 };
     const endAge = result.rows.at(-1)?.ageA ?? scenario.assumptions.endAge;
-    const balances: EstateBalances = { registered: final.rrsp, nonRegistered: final.nonReg, tfsa: final.tfsa };
+    // LIRA/LIF is registered: it joins the deemed disposition at death, like RRSP/RRIF.
+    const balances: EstateBalances = { registered: final.rrsp + final.lira, nonRegistered: final.nonReg, tfsa: final.tfsa };
     const gain = ASSUMED_GAIN_FRACTION * final.nonReg;
     const province = household.province;
     const totalBalances = balances.registered + balances.nonRegistered + balances.tfsa;

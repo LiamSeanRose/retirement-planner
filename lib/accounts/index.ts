@@ -7,9 +7,18 @@
  */
 
 import { RRIF_FACTORS_2026, rrifFactor, type RrifFactorConfig } from '../config/rrif-factors';
+import { LIF_FACTORS_2026, lifMaxFactor, type LifFactorConfig } from '../config/lif-factors';
 import { ACCOUNTS_CONFIG_2026, type AccountsConfig } from './config';
 
-export { rrifFactor };
+export { rrifFactor, lifMaxFactor };
+
+/**
+ * LIF MAXIMUM withdrawal for the year = Jan-1 balance × the federal LIF max factor for the age. A LIF
+ * also has the RRIF minimum as a floor (`rrifMinimum`); the LIF max is the ceiling a RRIF lacks.
+ */
+export function lifMaximum(jan1Balance: number, age: number, cfg: LifFactorConfig = LIF_FACTORS_2026): number {
+  return jan1Balance * lifMaxFactor(age, cfg);
+}
 
 /** Grow a balance by one year's return. `returnRate` is a fraction (0.05 = 5%). */
 export function growAccount(balance: number, returnRate: number): number {

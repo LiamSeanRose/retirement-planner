@@ -22,15 +22,15 @@ export type { YearPath, ReturnPath } from '../lib/paths';
  * falls back to the single `returnPct` otherwise.
  */
 export interface YearReturns extends YearPath {
-  returnByType?: { rrsp: number; tfsa: number; nonReg: number };
+  returnByType?: { rrsp: number; tfsa: number; nonReg: number; lira: number };
 }
 export type ReturnPathByType = YearReturns[];
 
 /** Which member (or jointly) owns an account — drives splitting + survivor logic in couple mode. */
 export type Owner = 'memberA' | 'memberB' | 'joint';
 
-/** The three account tax-wrappers modelled. */
-export type AccountType = 'rrsp' | 'tfsa' | 'nonReg';
+/** The account tax-wrappers modelled. `lira` = a locked-in account (LIRA → LIF) from a PSPP transfer value. */
+export type AccountType = 'rrsp' | 'tfsa' | 'nonReg' | 'lira';
 
 export interface Member {
   /** Display name. */

@@ -25,6 +25,7 @@ export interface DistributionByType {
   rrsp: { meanPct: number; volPct: number };
   tfsa: { meanPct: number; volPct: number };
   nonReg: { meanPct: number; volPct: number };
+  lira: { meanPct: number; volPct: number };
 }
 
 /** Default number of sampled runs (plan §8: ~1,000). */
@@ -204,11 +205,13 @@ export function runMonteCarlo(makeRun: MakeRun, opts: MonteCarloOpts): MonteCarl
       let rrsp: number;
       let tfsa: number;
       let nonReg: number;
+      let lira: number;
       if (rho <= 0) {
         // Independent draws (default) — exact same rng sequence as before, so results are unchanged.
         rrsp = rng.normal(dByType.rrsp.meanPct, dByType.rrsp.volPct);
         tfsa = rng.normal(dByType.tfsa.meanPct, dByType.tfsa.volPct);
         nonReg = rng.normal(dByType.nonReg.meanPct, dByType.nonReg.volPct);
+        lira = rng.normal(dByType.lira.meanPct, dByType.lira.volPct);
       } else {
         // Single-factor equicorrelation: one shared market shock zM plus an idiosyncratic shock per
         // account. Each account's standardized shock = √ρ·zM + √(1−ρ)·zᵢ is still N(0,1), with every
@@ -221,8 +224,9 @@ export function runMonteCarlo(makeRun: MakeRun, opts: MonteCarloOpts): MonteCarl
         rrsp = draw(dByType.rrsp);
         tfsa = draw(dByType.tfsa);
         nonReg = draw(dByType.nonReg);
+        lira = draw(dByType.lira);
       }
-      path[i] = { returnPct: (rrsp + tfsa + nonReg) / 3, inflationPct, indexingPct, returnByType: { rrsp, tfsa, nonReg } };
+      path[i] = { returnPct: (rrsp + tfsa + nonReg + lira) / 4, inflationPct, indexingPct, returnByType: { rrsp, tfsa, nonReg, lira } };
     }
     return path;
   };

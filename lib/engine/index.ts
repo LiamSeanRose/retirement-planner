@@ -90,7 +90,7 @@ export function blendedRiskProfile(accounts: Account[]): { meanPct: number; volP
 /** Balance-weighted return/volatility (percent) for EACH account type — drives per-account growth. */
 export function blendedRiskProfileByType(accounts: Account[]): Record<AccountType, { meanPct: number; volPct: number }> {
   const forType = (type: AccountType) => blendedRiskProfile(accounts.filter((a) => a.type === type));
-  return { rrsp: forType('rrsp'), tfsa: forType('tfsa'), nonReg: forType('nonReg') };
+  return { rrsp: forType('rrsp'), tfsa: forType('tfsa'), nonReg: forType('nonReg'), lira: forType('lira') };
 }
 
 /**
@@ -107,7 +107,7 @@ export function runScenario(household: Household, scenario: Scenario, config: Ye
     returnPct: blended.meanPct, // fallback for any consumer that ignores returnByType
     inflationPct,
     indexingPct,
-    returnByType: { rrsp: byType.rrsp.meanPct, tfsa: byType.tfsa.meanPct, nonReg: byType.nonReg.meanPct },
+    returnByType: { rrsp: byType.rrsp.meanPct, tfsa: byType.tfsa.meanPct, nonReg: byType.nonReg.meanPct, lira: byType.lira.meanPct },
   }));
   return runProjection(household, scenario, path, taxAdapter, config);
 }

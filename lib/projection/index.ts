@@ -80,10 +80,11 @@ interface Balances {
   rrsp: number;
   tfsa: number;
   nonReg: number;
+  lira: number;
 }
 
 function collapseBalances(accounts: Account[]): Balances {
-  const b: Balances = { rrsp: 0, tfsa: 0, nonReg: 0 };
+  const b: Balances = { rrsp: 0, tfsa: 0, nonReg: 0, lira: 0 };
   for (const a of accounts) b[a.type] += a.currentBalance;
   return b;
 }
@@ -301,6 +302,15 @@ export function runProjection(
     }
     balances.rrsp = applyWithdrawal(balances.rrsp, rrifMin).balance;
 
+    // --- LIF (locked-in) mandatory minimum. A LIRA from a PSPP transfer value behaves as a LIF in
+    // retirement: it pays the RRIF minimum each year (fully taxable, like RRIF income, splittable at
+    // 65+); the rest stays locked and grows. Assumes conversion at retirement (federal LIF age 55+),
+    // with the minimum starting the year after, as a RRIF does. Discretionary draws up to the federal
+    // LIF MAXIMUM (lib/accounts lifMaximum) are a later refinement; the mandatory minimum is the floor.
+    const jan1Lira = balances.lira;
+    const lifMin = jan1Lira > 0 && ageA > retirementAge ? rrifMinimum(jan1Lira, ageA) : 0;
+    balances.lira = applyWithdrawal(balances.lira, lifMin).balance;
+
     // --- Aggregate household income lines ---
     let pension = 0;
     let bridge = 0;
@@ -317,7 +327,7 @@ export function runProjection(
       secondCareer += L.secondCareer;
       lumpSum += L.lumpSum;
     }
-    const guaranteedGross = pension + bridge + cpp + oas + secondCareer + lumpSum + rrifMin;
+    const guaranteedGross = pension + bridge + cpp + oas + secondCareer + lumpSum + rrifMin + lifMin;
 
     // --- Discretionary withdrawals to meet the (gross) spend target, in withdrawal order ---
     let rrifExtra = 0;
@@ -353,11 +363,11 @@ export function runProjection(
     const incomeById = { memberA: 0, memberB: 0 } as Record<MemberId, number>;
     for (const p of plans) {
       const L = linesById[p.id];
-      const regWd = rrifMinById[p.id] + shareFor(p.id, baseRegShares, aliveById) * rrifExtra;
+      const regWd = rrifMinById[p.id] + shareFor(p.id, baseRegShares, aliveById) * rrifExtra + (p.id === 'memberA' ? lifMin : 0);
       const nonRegShare = shareFor(p.id, baseNonRegShares, aliveById) * nonRegTaxable;
       incomeById[p.id] = L.pension + L.bridge + L.cpp + L.oas + L.secondCareer + L.lumpSum + regWd + nonRegShare;
     }
-    const taxableIncome = pension + bridge + cpp + oas + secondCareer + lumpSum + rrifMin + rrifExtra + nonRegTaxable;
+    const taxableIncome = pension + bridge + cpp + oas + secondCareer + lumpSum + rrifMin + rrifExtra + lifMin + nonRegTaxable;
 
     // --- Tax: couple-mode pension splitting when both alive, otherwise a single filer ---
     let tax: number;
@@ -369,7 +379,7 @@ export function runProjection(
           // CPP/OAS/second-career/lump + the member's share of non-reg income (none splittable).
           ordinaryIncome: L.cpp + L.oas + L.secondCareer + L.lumpSum + shareFor(p.id, baseNonRegShares, aliveById) * nonRegTaxable,
           psppPension: L.pension + L.bridge,
-          rrifIncome: rrifMinById[p.id] + shareFor(p.id, baseRegShares, aliveById) * rrifExtra,
+          rrifIncome: rrifMinById[p.id] + shareFor(p.id, baseRegShares, aliveById) * rrifExtra + (p.id === 'memberA' ? lifMin : 0),
         };
       };
       tax = computeTax({
@@ -385,7 +395,7 @@ export function runProjection(
     } else {
       const filer = plans.find((p) => aliveById[p.id]) ?? plans[0];
       const filerAge = ageById[filer.id];
-      const pensionIncome = pension + bridge + (filerAge >= 65 ? rrifMin + rrifExtra : 0);
+      const pensionIncome = pension + bridge + (filerAge >= 65 ? rrifMin + rrifExtra + lifMin : 0);
       tax = computeTax({ province: household.province, year, age: filerAge, taxableIncome, pensionIncome, filingStatus, bracketIndexFactor });
     }
 
@@ -405,7 +415,8 @@ export function runProjection(
     balances.rrsp = growAccount(balances.rrsp, returnFor('rrsp'));
     balances.tfsa = growAccount(balances.tfsa, returnFor('tfsa'));
     balances.nonReg = growAccount(balances.nonReg, returnFor('nonReg'));
-    const netWorth = balances.rrsp + balances.tfsa + balances.nonReg;
+    balances.lira = growAccount(balances.lira, returnFor('lira'));
+    const netWorth = balances.rrsp + balances.tfsa + balances.nonReg + balances.lira;
 
     rows.push({
       year,
@@ -417,7 +428,7 @@ export function runProjection(
       oas,
       secondCareer,
       lumpSum,
-      rrifMin,
+      rrifMin: rrifMin + lifMin, // mandatory registered minimums (RRIF + locked-in LIF) — shown together
       rrifExtra,
       tfsaWd,
       nonRegInc,
@@ -426,7 +437,7 @@ export function runProjection(
       oasClawback: oasClawbackAmount,
       afterTax,
       filingStatus,
-      balances: { rrsp: balances.rrsp, tfsa: balances.tfsa, nonReg: balances.nonReg },
+      balances: { rrsp: balances.rrsp, tfsa: balances.tfsa, nonReg: balances.nonReg, lira: balances.lira },
       netWorth,
     });
 

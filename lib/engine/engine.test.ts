@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Household, ReturnPathByType, Scenario } from '../../types/planner';
+import type { Account, Household, ReturnPathByType, Scenario } from '../../types/planner';
 import { blendedRiskProfile, blendedRiskProfileByType, runMonteCarloScenario, runScenario, runScenarioOverPath } from './index';
 
 const household: Household = {
@@ -36,6 +36,24 @@ describe('blendedRiskProfile', () => {
   });
   it('handles no accounts without dividing by zero', () => {
     expect(blendedRiskProfile([])).toEqual({ meanPct: 0, volPct: 0 });
+  });
+});
+
+describe('LIRA / LIF (locked-in PSPP transfer value)', () => {
+  const liraAcct: Account = { id: 'l', owner: 'memberA', type: 'lira', currentBalance: 200_000, riskProfile: { expectedReturn: 5, volatility: 10 } };
+  const withLira: Household = { ...household, accounts: [...household.accounts, liraAcct] };
+  const base = runScenario(household, scenario);
+  const withL = runScenario(withLira, scenario);
+
+  it('pays a mandatory LIF minimum (extra taxable registered income) while staying locked-in', () => {
+    const b72 = base.rows.find((r) => r.ageA === 72)!;
+    const l72 = withL.rows.find((r) => r.ageA === 72)!;
+    expect(l72.rrifMin).toBeGreaterThan(b72.rrifMin); // the extra over the RRSP's RRIF min is the LIF minimum
+    expect(l72.balances.lira).toBeGreaterThan(0); // the rest stays locked and grows
+  });
+  it('raises lifetime tax and the after-tax estate (more registered money)', () => {
+    expect(withL.totals.lifetimeTax).toBeGreaterThan(base.totals.lifetimeTax);
+    expect(withL.totals.estateValue).toBeGreaterThan(base.totals.estateValue);
   });
 });
 

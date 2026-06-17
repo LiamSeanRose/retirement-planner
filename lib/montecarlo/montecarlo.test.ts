@@ -217,7 +217,7 @@ describe('runMonteCarlo — after-tax bands and per-type sampling (B1)', () => {
       years: 1,
       runs: 1,
       seed: 3,
-      distributionByType: { rrsp: { meanPct: 6, volPct: 12 }, tfsa: { meanPct: 3, volPct: 4 }, nonReg: { meanPct: 4, volPct: 8 } },
+      distributionByType: { rrsp: { meanPct: 6, volPct: 12 }, tfsa: { meanPct: 3, volPct: 4 }, nonReg: { meanPct: 4, volPct: 8 }, lira: { meanPct: 5, volPct: 10 } },
     });
     expect(captured[0].returnByType).toBeDefined();
     expect(typeof captured[0].returnByType!.rrsp).toBe('number');

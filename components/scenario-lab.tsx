@@ -12,7 +12,8 @@ const PROVINCES: { value: Province; label: string }[] = [
   ['YT', 'Yukon'], ['NT', 'Northwest Territories'], ['NU', 'Nunavut'],
 ].map(([value, label]) => ({ value: value as Province, label }));
 
-const ACCOUNT_LABELS: Record<AccountType, string> = { rrsp: 'RRSP / RRIF', tfsa: 'TFSA', nonReg: 'Non-registered' };
+const ACCOUNT_LABELS: Record<AccountType, string> = { rrsp: 'RRSP / RRIF', tfsa: 'TFSA', nonReg: 'Non-registered', lira: 'LIRA / LIF' };
+const ACCOUNT_TYPES: AccountType[] = ['rrsp', 'tfsa', 'nonReg', 'lira'];
 const OWNERS = [
   { value: 'memberA' as const, label: 'A' },
   { value: 'memberB' as const, label: 'B' },
@@ -138,7 +139,7 @@ export function ScenarioLab({
           {household.accounts.map((acc) => (
             <div key={acc.id} className="rounded border border-line bg-paper/60 p-3">
               <div className="mb-2 flex items-center justify-between">
-                <Segmented ariaLabel="Account type" value={acc.type} onChange={(v) => patchAccount(acc.id, { type: v })} options={(['rrsp', 'tfsa', 'nonReg'] as AccountType[]).map((t) => ({ value: t, label: ACCOUNT_LABELS[t].split(' ')[0] }))} />
+                <Segmented ariaLabel="Account type" value={acc.type} onChange={(v) => patchAccount(acc.id, { type: v })} options={ACCOUNT_TYPES.map((t) => ({ value: t, label: ACCOUNT_LABELS[t].split(' ')[0] }))} />
                 <button type="button" onClick={() => setAccounts(household.accounts.filter((x) => x.id !== acc.id))} className="ml-2 shrink-0 rounded px-2 py-1 text-xs text-faint hover:text-maple" aria-label="Remove account">
                   Remove
                 </button>
@@ -159,7 +160,7 @@ export function ScenarioLab({
             </div>
           ))}
           <div className="flex gap-2">
-            {(['rrsp', 'tfsa', 'nonReg'] as AccountType[]).map((t) => (
+            {ACCOUNT_TYPES.map((t) => (
               <button key={t} type="button" onClick={() => setAccounts([...household.accounts, newAccount(t)])} className="flex-1 rounded border border-dashed border-line py-2 text-xs font-medium text-muted hover:border-evergreen hover:text-evergreen">
                 + {ACCOUNT_LABELS[t].split(' ')[0]}
               </button>

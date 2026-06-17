@@ -6,12 +6,34 @@ import {
   eligibleDividendTaxableAmount,
   growAccount,
   interestTaxableAmount,
+  lifMaxFactor,
+  lifMaximum,
   rrifMinimum,
   rrifWithholding,
   tfsaWithdrawal,
 } from './index';
 
 const near = (a: number, b: number, tol = 1e-6) => expect(Math.abs(a - b)).toBeLessThanOrEqual(tol);
+
+describe('federal LIF maximum (locked-in)', () => {
+  it('uses the 2026 federal max table', () => {
+    near(lifMaxFactor(65), 0.0591);
+    near(lifMaxFactor(71), 0.0696);
+    near(lifMaxFactor(55), 0.0488);
+  });
+  it('reaches 100% at 89+ (the fund can fully deplete)', () => {
+    near(lifMaxFactor(89), 1.0);
+    near(lifMaxFactor(95), 1.0);
+  });
+  it('the LIF maximum always exceeds the RRIF minimum at the same age (a LIF can pay more than a RRIF must)', () => {
+    for (const age of [60, 65, 71, 80, 85]) {
+      expect(lifMaxFactor(age)).toBeGreaterThan(rrifFactor(age));
+    }
+  });
+  it('lifMaximum scales the Jan-1 balance', () => {
+    near(lifMaximum(200_000, 65), 200_000 * 0.0591);
+  });
+});
 
 describe('rrifFactor', () => {
   it('under 71 uses 1/(90−age)', () => {

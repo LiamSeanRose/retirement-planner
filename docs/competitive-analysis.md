@@ -54,7 +54,8 @@ Optiml is the primary benchmark (Dad uses it and likes it). Researched 2026-06-1
 | Real-time what-if | ✅ instant recompute on every input change |
 | "Next best decision" (Conquest SAM) | ✅ deterministic insights engine (dollar-quantified recommendations) |
 | **Variable spending phases (go-go/slow-go/no-go)** | ⛔ **GAP → building now** |
-| **FHSA / LIRA-LIF / RESP / RDSP / corporate accounts** | ⛔ **GAP** (we model RRSP/TFSA/Non-reg) — LIRA/LIF is relevant to PSPP transfer values |
+| **LIRA / LIF (locked-in, PSPP transfer value)** | ✅ **BUILT** — locked-in account that pays the federal LIF mandatory minimum, taxed + estate-counted as registered (Optiml doesn't even list LIRA on its public features) |
+| **FHSA / RESP / RDSP / corporate accounts** | ⛔ **GAP** (we model RRSP/TFSA/Non-reg/LIRA) |
 | **Historical-returns scenario backtests** | ⛔ **GAP** (we have parametric Monte Carlo + named stress paths) |
 | Save/manage many named plans | ◑ URL-encoded share + in-session snapshots (no persisted library yet) |
 | Download/export plan (PDF/CSV) | ◑ print-friendly + shareable URL (no file export yet) |
@@ -71,7 +72,7 @@ Optiml is the primary benchmark (Dad uses it and likes it). Researched 2026-06-1
 ## 5. Roadmap — close the gaps, in priority order
 
 1. **Variable spending phases (go-go / slow-go / no-go)** — the marquee gap and a realistic model (retirees spend ~100% to ~75, then taper 20–30%). Highest impact, clean engine change. **← building now.**
-2. **LIRA / LIF accounts** — directly relevant: a PSPP *transfer value* lands in a locked-in account with a LIF maximum. The plan already flags this as a later module.
+2. ~~**LIRA / LIF accounts**~~ — **DONE.** Locked-in account from a PSPP transfer value; pays the federal LIF mandatory minimum (RRIF factor), the rest stays locked and grows, taxed + estate-counted as registered. Federal LIF *maximum* table + 50%-unlock are captured for a future "draw up to the LIF max / unlock" refinement.
 3. **Historical-returns scenarios** — run the plan over real market sequences (block bootstrap) alongside parametric Monte Carlo.
 4. **FHSA / RESP / corporate (CCPC)** — broaden beyond the core three account types.
 5. **Persisted named-plan library + PDF/CSV export** — match "save 20 plans / download".
