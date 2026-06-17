@@ -16,6 +16,13 @@ import { DEFAULT_CONFIG, type YearConfig } from '../config';
  */
 const SURVIVOR_FRACTION = 0.5;
 
+/**
+ * CPP survivor benefit fraction (simplified): the survivor receives ~60% of the deceased's CPP,
+ * subject to the combined-benefit maximum below. The real formula varies with the survivor's age
+ * and has a flat-rate component — flagged as a refinement (edge-cases §3).
+ */
+const SURVIVOR_CPP_FRACTION = 0.6;
+
 /** The pieces of a member needed to size the survivor allowance. */
 export interface SurvivorInput {
   pensionableServiceYears: number;
@@ -34,6 +41,23 @@ export function survivorAllowanceAnnual(member: SurvivorInput, config: YearConfi
 /** Monthly survivor allowance = annual ÷ 12. */
 export function survivorAllowanceMonthly(member: SurvivorInput, config: YearConfig = DEFAULT_CONFIG): number {
   return survivorAllowanceAnnual(member, config) / 12;
+}
+
+/**
+ * CPP survivor benefit (annual): a fraction of the deceased's CPP, capped by the COMBINED-BENEFIT
+ * MAXIMUM — the survivor's own CPP plus the survivor benefit cannot exceed the maximum retirement
+ * pension (edge-cases §3). So a survivor already near the CPP max gets little or nothing extra.
+ */
+export function survivorCppBenefitAnnual(
+  deceasedCppAnnual: number,
+  survivorOwnCppAnnual: number,
+  config: YearConfig = DEFAULT_CONFIG,
+  survivorFraction: number = SURVIVOR_CPP_FRACTION,
+): number {
+  const combinedMaxAnnual = config.cpp.maxMonthlyAt65 * 12;
+  const headroom = combinedMaxAnnual - Math.max(0, survivorOwnCppAnnual);
+  const raw = survivorFraction * Math.max(0, deceasedCppAnnual);
+  return Math.max(0, Math.min(raw, headroom));
 }
 
 /**
