@@ -15,12 +15,14 @@ import { provincialTax } from './index';
 const near = (a: number, b: number, tol = 1): void => expect(Math.abs(a - b)).toBeLessThanOrEqual(tol);
 
 const ALL: Province[] = ['ON', 'QC', 'BC', 'AB', 'MB', 'SK', 'NB', 'NS', 'PE', 'NL', 'YT', 'NT', 'NU'];
-const VERIFIED: Province[] = ['ON', 'BC', 'AB'];
+// All 13 are 2026-verified (TaxTips.ca, retrieved 2026-06) EXCEPT Quebec, whose 2026 figures are
+// indexation estimates not yet confirmed by Quebec's Ministry of Finance.
+const UNVERIFIED: Province[] = ['QC'];
 
 describe('province verification posture (honest flags — never a silent guess)', () => {
-  it('exactly ON, BC, AB are marked verified for 2026; the rest are explicitly unverified', () => {
+  it('all provinces/territories are 2026-verified except Quebec', () => {
     for (const p of ALL) {
-      expect(TAX_CONFIG_2026.provinces[p].verified).toBe(VERIFIED.includes(p));
+      expect(TAX_CONFIG_2026.provinces[p].verified).toBe(!UNVERIFIED.includes(p));
     }
   });
 

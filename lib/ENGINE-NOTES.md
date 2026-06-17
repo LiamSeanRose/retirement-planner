@@ -90,13 +90,16 @@ for 2026 (was 5.06%).* Source: TaxTips.ca, retrieved 2026-06.
 **Alberta [V 2026]** — 8 / 10 / 12 / 13 / 14 / 15% at $61,200 / $154,259 / $185,111 / $246,813 /
 $370,220; BPA $22,769. Source: TaxTips.ca, retrieved 2026-06.
 
-**Quebec** — 16.5% **federal abatement** applied to basic federal tax [V mechanism]; QC brackets/BPA
-($18,571) remain ~2025 best-effort [~], and QC's distinct refundable/credit system is approximated by
+**Quebec [~]** — 16.5% **federal abatement** applied to basic federal tax [V mechanism]; QC 2026
+brackets/BPA ($18,952) are **indexation estimates** (×1.0205) **not yet confirmed by Quebec's Ministry
+of Finance**, so QC stays `verified: false`. QC's distinct refundable/credit system is approximated by
 the lowest-rate credit valuation.
 
-**Other provinces/territories [~]** — MB, SK, NB, NS, PE, NL, YT, NT, NU carry their bracket structure
-with ~2025 best-effort values, `verified: false`, each flagged in its config note. **Do not rely on
-these for a shipped projection until confirmed for 2026.**
+**All other provinces/territories [V]** — MB, SK, NB, NS, PE, NL, YT, NT, NU are now **2026-verified**
+(TaxTips.ca, retrieved 2026-06; per-province confirmation noted in config). Most are confirmed to CRA;
+MB is indexation-frozen; YT uses federal-aligned thresholds with a $500k top (its statutory rate on
+$181,440–$258,482 is 12.8% — the 12.93% "effective" figure TaxTips shows there is the federal BPA-grind
+interaction, not a YT bracket). **Quebec is the only province still flagged `verified: false`.**
 
 - Tax-modelling simplification: only these credits are modelled — federal BPA (with grind) + age amount +
   pension income amount; provincial BPA + (ON age/pension amounts) + ON surtax + ON health premium + QC
@@ -133,4 +136,6 @@ nominal-cumulative. Pinned in `lib/engine/calibration.test.ts` for a documented 
 5. Non-registered taxation is assumption-based (no per-lot ACB tracking).
 6. Monte Carlo holds inflation and longevity deterministic; only returns are stochastic.
 7. Lifetime tax is nominal-cumulative, not present-valued.
-8. Only ON / BC / AB province tax is verified for 2026; QC abatement verified; the rest are ~2025.
+8. All 13 provinces/territories are 2026-verified (TaxTips.ca) **except Quebec**, whose 2026 figures are
+   indexation estimates pending QC Finance confirmation. Provincial credits beyond the BPA (and ON surtax/
+   health premium + QC abatement) are not modelled, so non-ON provincial tax is still an approximation.
