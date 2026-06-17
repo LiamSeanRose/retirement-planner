@@ -1,181 +1,129 @@
-'use client';
-
-import { useEffect, useMemo, useState } from 'react';
-import type { Household, Scenario } from '@/types/planner';
-import { runScenario } from '@/lib/engine';
-import { DEFAULT_HOUSEHOLD, DEFAULT_SCENARIO, encodeState, loadPlans, MAX_PLANS, newPlanId, persistPlans, readStateFromUrl, writeStateToUrl, type SavedPlan } from '@/lib/share';
-import { ScenarioLab } from '@/components/scenario-lab';
-import { AnalyticsPanel } from '@/components/analytics-panel';
-import { OptimizerPanel } from '@/components/optimizer-panel';
-import { Comparison } from '@/components/comparison';
-import { EstatePanel } from '@/components/estate-panel';
-import { StressPanel } from '@/components/stress-panel';
-import { HistoricalPanel } from '@/components/historical-panel';
-import { InsightsPanel } from '@/components/insights-panel';
-import { MeltdownCallout } from '@/components/meltdown-callout';
-import { PlainEnglish } from '@/components/plain-english';
-import { useMonteCarlo } from '@/components/use-monte-carlo';
+import Link from 'next/link';
 
 const RULES_AS_OF = '2026';
 
-function Masthead({ onShare, shared }: { onShare: () => void; shared: boolean }) {
+/** A small engraved-style "two paths" trajectory — the same plan, two decisions. The hero motif. */
+function TrajectoryMotif() {
   return (
-    <header className="flex flex-wrap items-end justify-between gap-4 border-b-2 border-ink pb-4">
-      <div>
-        <p className="eyebrow mb-1.5">Federal Public Service · PSSA pension</p>
-        <h1 className="font-display text-3xl font-semibold leading-none tracking-tight text-ink sm:text-4xl">
-          The Retirement Almanac
-        </h1>
-        <p className="mt-2 max-w-xl text-sm leading-snug text-muted">
-          A year-by-year picture of your pension, CPP/OAS, savings, and tax — and how the levers of an
-          early retirement change the whole trajectory.
-        </p>
-      </div>
-      <div className="flex items-center gap-3">
-        <span className="hidden text-right text-xs leading-tight text-faint sm:block">
-          Tax &amp; benefit rules
-          <br />
-          as of {RULES_AS_OF}
-        </span>
-        <button
-          type="button"
-          onClick={onShare}
-          className="rounded border border-evergreen bg-evergreen px-3.5 py-2 text-sm font-medium text-paper transition-colors hover:bg-evergreen-soft"
-        >
-          {shared ? 'Link copied ✓' : 'Share plan'}
-        </button>
-      </div>
-    </header>
+    <svg viewBox="0 0 340 220" className="h-auto w-full" role="img" aria-label="Two retirement trajectories diverging over time">
+      {/* baseline grid */}
+      {[40, 90, 140, 190].map((y) => (
+        <line key={y} x1="0" y1={y} x2="340" y2={y} stroke="var(--line)" strokeWidth="1" />
+      ))}
+      {/* "do nothing" path — lower, clay */}
+      <path d="M0,180 C 80,172 140,160 200,150 S 300,132 340,128" fill="none" stroke="var(--c-nonreg)" strokeWidth="1.5" strokeDasharray="3 3" opacity="0.8" />
+      {/* "optimized" path — higher, evergreen, with an area wash */}
+      <path d="M0,178 C 70,156 120,112 184,96 S 292,50 340,32 L340,210 L0,210 Z" fill="var(--evergreen)" opacity="0.06" />
+      <path d="M0,178 C 70,156 120,112 184,96 S 292,50 340,32" fill="none" stroke="var(--evergreen)" strokeWidth="2.5" />
+      {/* a marker where the paths diverge */}
+      <circle cx="184" cy="96" r="3.5" fill="var(--evergreen)" stroke="var(--surface)" strokeWidth="1.5" />
+      {/* age ticks */}
+      {[['60', 4], ['75', 160], ['90', 318]].map(([label, x]) => (
+        <text key={label} x={x as number} y="208" fontSize="9" fill="var(--faint)" fontFamily="var(--font-mono)">{label}</text>
+      ))}
+    </svg>
   );
 }
 
-function Disclaimer() {
+function Stat({ k, v }: { k: string; v: string }) {
   return (
-    <footer className="mt-8 border-t border-line pt-5 text-xs leading-relaxed text-faint">
-      <p className="max-w-3xl">
-        <strong className="font-medium text-muted">Estimates and educational projections only — not financial, tax, or
-        legal advice.</strong>{' '}
-        Confirm with the Government of Canada Pension Centre and a qualified advisor before acting. Every projection rests
-        on assumptions (returns, inflation, life expectancy, future tax rules) that you can and should adjust. Tax and
-        benefit rules current as of {RULES_AS_OF}.
-      </p>
-      <p className="mt-2 max-w-3xl">
-        All computation runs in your browser — your salary and savings figures never leave your device or reach a server.
-        A shared link encodes the plan in the URL itself.
-      </p>
-    </footer>
-  );
-}
-
-function Skeleton() {
-  return (
-    <div className="space-y-5">
-      <div className="h-64 animate-pulse rounded-card border border-line bg-surface" />
-      <div className="h-80 animate-pulse rounded-card border border-line bg-surface" />
+    <div className="border-t border-ink/15 pt-3">
+      <p className="font-display text-2xl font-semibold leading-none text-ink">{v}</p>
+      <p className="mt-1 text-xs leading-snug text-muted">{k}</p>
     </div>
   );
 }
 
-export default function Page() {
-  const [household, setHousehold] = useState<Household>(DEFAULT_HOUSEHOLD);
-  const [scenario, setScenario] = useState<Scenario>(DEFAULT_SCENARIO);
-  const [restored, setRestored] = useState(false);
-  const [mounted, setMounted] = useState(false);
-  const [shared, setShared] = useState(false);
-  const [plans, setPlans] = useState<SavedPlan[]>([]);
-  const [plansLoaded, setPlansLoaded] = useState(false);
-  const [labOpen, setLabOpen] = useState(true);
+const FEATURES: { title: string; body: string }[] = [
+  { title: 'Probability of success', body: 'A thousand market simulations behind one honest confidence number — not a single rosy projection.' },
+  { title: 'The RRSP meltdown', body: 'See the RRIF “tax bomb” of doing nothing, and how drawing down earlier defuses it and grows your estate.' },
+  { title: '“If this happens” events', body: 'Long-term care, a market crash the year you retire, an inheritance, downsizing — toggle each and watch the plan move.' },
+  { title: 'Plain-English summary', body: 'Your whole plan explained in a few clear sentences, drawn straight from the numbers. No jargon required.' },
+  { title: 'Retire into history', body: 'Replay your plan through 1973, 2000, 2008 — every real market sequence since 1926 — and find your worst year to retire.' },
+  { title: 'CPP / OAS timing', body: 'The tool searches every start age (60–70) and tells you the one that leaves you the most, with the break-even age.' },
+];
 
-  // Restore a shared plan from the URL on first mount.
-  useEffect(() => {
-    const s = readStateFromUrl();
-    if (s) {
-      setHousehold(s.household);
-      setScenario(s.scenario);
-    }
-    setRestored(true);
-    setMounted(true);
-  }, []);
-
-  // Persist the plan to the URL hash as it changes (client-only, no PII leaves the browser).
-  useEffect(() => {
-    if (restored) writeStateToUrl({ household, scenario });
-  }, [household, scenario, restored]);
-
-  // The saved-plan library lives in localStorage (on this device only): load once, persist on change.
-  useEffect(() => {
-    setPlans(loadPlans());
-    setPlansLoaded(true);
-  }, []);
-  useEffect(() => {
-    if (plansLoaded) persistPlans(plans);
-  }, [plans, plansLoaded]);
-
-  const result = useMemo(() => runScenario(household, scenario), [household, scenario]);
-  const { result: mc, loading: mcLoading } = useMonteCarlo(household, scenario);
-
-  const savePlan = (name: string) =>
-    setPlans((prev) => (prev.length >= MAX_PLANS ? prev : [...prev, { id: newPlanId(), name, savedAt: Date.now(), household, scenario }]));
-  const loadPlan = (id: string) => {
-    const p = plans.find((x) => x.id === id);
-    if (p) {
-      setHousehold(p.household);
-      setScenario(p.scenario);
-    }
-  };
-
-  const onShare = () => {
-    const url = `${window.location.origin}${window.location.pathname}#p=${encodeState({ household, scenario })}`;
-    navigator.clipboard?.writeText(url).then(
-      () => {
-        setShared(true);
-        setTimeout(() => setShared(false), 2000);
-      },
-      () => undefined,
-    );
-  };
-
+export default function Home() {
   return (
-    <div className="relative z-10 mx-auto max-w-[1500px] px-4 py-6 lg:px-8">
-      <Masthead onShare={onShare} shared={shared} />
-      <button
-        type="button"
-        onClick={() => setLabOpen((v) => !v)}
-        aria-expanded={labOpen}
-        className="mt-4 w-full rounded border border-line bg-surface px-3 py-2 text-sm font-medium text-ink lg:hidden"
-      >
-        {labOpen ? 'Hide plan inputs ▴' : 'Edit plan inputs ▾'}
-      </button>
-      <div className="mt-4 grid gap-6 lg:mt-6 lg:grid-cols-[380px_1fr]">
-        <aside className={`${labOpen ? 'block' : 'hidden'} lg:!block lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:self-start lg:overflow-y-auto lg:pr-1`}>
-          <ScenarioLab household={household} scenario={scenario} onHousehold={setHousehold} onScenario={setScenario} />
-        </aside>
-        <main className="space-y-5" aria-live="polite" aria-busy={mcLoading}>
-          {mounted ? (
-            <>
-              <PlainEnglish household={household} scenario={scenario} result={result} successProbability={mc?.probabilityOfSuccess} />
-              <AnalyticsPanel result={result} mc={mc} mcLoading={mcLoading} />
-              <InsightsPanel household={household} scenario={scenario} />
-              <MeltdownCallout household={household} scenario={scenario} />
-              <EstatePanel household={household} scenario={scenario} result={result} />
-              <OptimizerPanel household={household} scenario={scenario} onApply={setScenario} />
-              <StressPanel household={household} scenario={scenario} />
-              <HistoricalPanel household={household} scenario={scenario} />
-              <Comparison
-                current={result}
-                plans={plans}
-                onSave={savePlan}
-                onLoad={loadPlan}
-                onRemove={(id) => setPlans((prev) => prev.filter((p) => p.id !== id))}
-                onClear={() => setPlans([])}
-              />
-            </>
-          ) : (
-            <Skeleton />
-          )}
-        </main>
-      </div>
-      <Disclaimer />
+    <div className="relative z-10 mx-auto max-w-5xl px-5 py-8 sm:px-8 lg:py-12">
+      {/* Wordmark bar */}
+      <header className="flex items-center justify-between border-b-2 border-ink pb-4">
+        <p className="font-display text-lg font-semibold tracking-tight text-ink">The Retirement Almanac</p>
+        <p className="eyebrow">{RULES_AS_OF} Edition</p>
+      </header>
+
+      {/* Hero */}
+      <section className="grid items-center gap-10 py-14 lg:grid-cols-[1.1fr_0.9fr] lg:py-20">
+        <div>
+          <p className="eyebrow mb-4">For Canadian federal public servants · PSSA pension</p>
+          <h1 className="font-display text-4xl font-semibold leading-[1.05] tracking-tight text-ink sm:text-5xl lg:text-6xl">
+            Know exactly when you can afford to retire.
+          </h1>
+          <p className="mt-5 max-w-xl text-base leading-relaxed text-muted sm:text-lg">
+            Model your federal pension, CPP/OAS, savings, and tax — year by year — and see how every
+            decision, from your retirement age to an RRSP meltdown, changes the whole picture.
+          </p>
+          <div className="mt-7 flex flex-wrap items-center gap-3">
+            <Link href="/plan?wizard=1" className="rounded border border-evergreen bg-evergreen px-5 py-2.5 text-sm font-medium text-paper shadow-card transition-colors hover:bg-evergreen-soft">
+              Build my plan →
+            </Link>
+            <Link href="/plan" className="rounded border border-line bg-surface px-5 py-2.5 text-sm font-medium text-ink transition-colors hover:border-evergreen hover:text-evergreen">
+              Explore the planner
+            </Link>
+          </div>
+          <p className="mt-5 text-xs text-faint">
+            Free · Private · Runs entirely in your browser — your numbers never leave your device.
+          </p>
+        </div>
+        <div className="rounded-card border border-line bg-surface/70 p-5 shadow-card">
+          <p className="eyebrow mb-3">The same plan, two decisions</p>
+          <TrajectoryMotif />
+          <p className="mt-3 text-xs leading-snug text-faint">
+            Net worth through retirement — the solid line is an optimized plan, the dashed line is doing nothing.
+          </p>
+        </div>
+      </section>
+
+      {/* Value props */}
+      <section className="grid gap-8 border-y border-line py-10 sm:grid-cols-3">
+        <Stat v="Free" k="No account, no paywall, no upsell — built for one family, shared for everyone." />
+        <Stat v="Private" k="Every calculation runs on your device. Your salary and savings never reach a server." />
+        <Stat v="Federal-exact" k="The PSPP bridge benefit, Group 1/2 rules, the meltdown, OAS clawback — modelled precisely." />
+      </section>
+
+      {/* Feature almanac */}
+      <section className="py-12">
+        <h2 className="font-display text-2xl font-semibold tracking-tight text-ink sm:text-3xl">What you&apos;ll find inside</h2>
+        <div className="mt-7 grid gap-x-10 gap-y-7 sm:grid-cols-2">
+          {FEATURES.map((f) => (
+            <div key={f.title} className="border-t border-line pt-3">
+              <h3 className="text-sm font-semibold text-ink">{f.title}</h3>
+              <p className="mt-1 text-sm leading-relaxed text-muted">{f.body}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Closing CTA */}
+      <section className="flex flex-col items-start justify-between gap-5 rounded-card border border-evergreen/25 bg-evergreen/[0.04] px-6 py-7 sm:flex-row sm:items-center sm:px-8">
+        <div>
+          <h2 className="font-display text-xl font-semibold tracking-tight text-ink sm:text-2xl">Build your plan in about two minutes.</h2>
+          <p className="mt-1.5 text-sm text-muted">Answer a few plain questions — we&apos;ll do the pension, tax, and projection math.</p>
+        </div>
+        <Link href="/plan?wizard=1" className="shrink-0 rounded border border-evergreen bg-evergreen px-5 py-2.5 text-sm font-medium text-paper shadow-card transition-colors hover:bg-evergreen-soft">
+          Get started →
+        </Link>
+      </section>
+
+      {/* Footer */}
+      <footer className="mt-10 border-t border-line pt-5 text-xs leading-relaxed text-faint">
+        <p className="max-w-3xl">
+          <strong className="font-medium text-muted">Estimates and educational projections only — not financial, tax, or legal
+          advice.</strong>{' '}
+          Confirm with the Government of Canada Pension Centre and a qualified advisor before acting. Tax and benefit rules
+          current as of {RULES_AS_OF}. Models the federal Public Service Pension Plan (PSSA) only.
+        </p>
+      </footer>
     </div>
   );
 }
