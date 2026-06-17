@@ -13,6 +13,7 @@ import { StressPanel } from '@/components/stress-panel';
 import { HistoricalPanel } from '@/components/historical-panel';
 import { InsightsPanel } from '@/components/insights-panel';
 import { MeltdownCallout } from '@/components/meltdown-callout';
+import { PlainEnglish } from '@/components/plain-english';
 import { useMonteCarlo } from '@/components/use-monte-carlo';
 
 const RULES_AS_OF = '2026';
@@ -152,6 +153,7 @@ export default function Page() {
         <main className="space-y-5" aria-live="polite" aria-busy={mcLoading}>
           {mounted ? (
             <>
+              <PlainEnglish household={household} scenario={scenario} result={result} successProbability={mc?.probabilityOfSuccess} />
               <AnalyticsPanel result={result} mc={mc} mcLoading={mcLoading} />
               <InsightsPanel household={household} scenario={scenario} />
               <MeltdownCallout household={household} scenario={scenario} />
