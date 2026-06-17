@@ -1,18 +1,22 @@
 /**
  * Scenario analysis (`/lib/analysis`) — the what-if comparison layer (plan §10 what-if, §13).
- *   - `compareScenarios` — a metrics diff table (one row per metric) across 2–4 overlaid scenarios.
- *   - `breakEven`        — CPP and OAS break-even ages, by running start-age variants through the
- *     read-only engine and finding where the deferred option's cumulative benefit overtakes the
- *     early option's.
+ *   - `compareScenarios`          — a metrics diff table (one row per metric) across 2–4 scenarios.
+ *   - `compareScenariosDetailed`  — the same, enriched with per-metric deltas, % differences, and
+ *     winner flags relative to a baseline scenario.
+ *   - `breakEven`                 — CPP and OAS break-even ages via cumulative-benefit crossover with
+ *     linear interpolation (a fractional age, not just the first integer year past the crossover).
  *
- * Pure: no React/IO. Calls only the current 2-arg public engine API (`runScenario`); never edits the
- * engine or projection.
+ * Every output is a plain, serializable object the UI can render directly. Pure: no React/IO; calls
+ * only the current 2-arg public engine API (`runScenario`); never edits the engine or projection.
  */
 
 import type { Household, Scenario, ScenarioResult, YearRow } from '../../types/planner';
 import { runScenario } from '../engine';
 
 // --- Scenario comparison diff table -------------------------------------------------------------
+
+/** Whether a higher value, a lower value, or `true` is "better" for a metric (drives winner flags). */
+export type MetricDirection = 'higher' | 'lower' | 'boolean';
 
 export interface MetricRow {
   /** Stable machine key. */
@@ -37,19 +41,20 @@ function afterTaxAtAge(result: ScenarioResult, age: number): number | null {
 interface MetricDef {
   metric: string;
   label: string;
+  direction: MetricDirection;
   get: (r: ScenarioResult) => number | boolean | null;
 }
 
 /** The diff-table metrics (plan §9 summary metrics), one row each. */
 const METRICS: MetricDef[] = [
-  { metric: 'incomeAt60', label: 'After-tax income at 60', get: (r) => afterTaxAtAge(r, 60) },
-  { metric: 'incomeAt65', label: 'After-tax income at 65', get: (r) => afterTaxAtAge(r, 65) },
-  { metric: 'incomeAt70', label: 'After-tax income at 70', get: (r) => afterTaxAtAge(r, 70) },
-  { metric: 'lifetimeAfterTax', label: 'Lifetime after-tax income', get: (r) => r.totals.lifetimeAfterTax },
-  { metric: 'lifetimeTax', label: 'Lifetime tax', get: (r) => r.totals.lifetimeTax },
-  { metric: 'oasRetained', label: 'OAS retained (net of clawback)', get: (r) => r.totals.oasRetained },
-  { metric: 'estateValue', label: 'After-tax estate value', get: (r) => r.totals.estateValue },
-  { metric: 'lastsToEndAge', label: 'Money lasts to end age', get: (r) => r.totals.lastsToEndAge },
+  { metric: 'incomeAt60', label: 'After-tax income at 60', direction: 'higher', get: (r) => afterTaxAtAge(r, 60) },
+  { metric: 'incomeAt65', label: 'After-tax income at 65', direction: 'higher', get: (r) => afterTaxAtAge(r, 65) },
+  { metric: 'incomeAt70', label: 'After-tax income at 70', direction: 'higher', get: (r) => afterTaxAtAge(r, 70) },
+  { metric: 'lifetimeAfterTax', label: 'Lifetime after-tax income', direction: 'higher', get: (r) => r.totals.lifetimeAfterTax },
+  { metric: 'lifetimeTax', label: 'Lifetime tax', direction: 'lower', get: (r) => r.totals.lifetimeTax },
+  { metric: 'oasRetained', label: 'OAS retained (net of clawback)', direction: 'higher', get: (r) => r.totals.oasRetained },
+  { metric: 'estateValue', label: 'After-tax estate value', direction: 'higher', get: (r) => r.totals.estateValue },
+  { metric: 'lastsToEndAge', label: 'Money lasts to end age', direction: 'boolean', get: (r) => r.totals.lastsToEndAge },
 ];
 
 /** The metric keys, in table order. */
@@ -71,35 +76,108 @@ export function compareScenarios(results: ScenarioResult[]): ComparisonTable {
   };
 }
 
-// --- CPP / OAS break-even ages ------------------------------------------------------------------
+// --- Richer comparison: deltas, % differences, winner flags -------------------------------------
+
+export interface ScenarioCell {
+  value: number | boolean | null;
+  /** value − baseline value (numeric metrics only; null otherwise). */
+  deltaVsBaseline: number | null;
+  /** Fractional difference vs baseline, e.g. 0.1 = +10% (null when baseline is 0 / non-numeric). */
+  pctVsBaseline: number | null;
+  /** True when this scenario is best (or tied-best) for the metric, per its direction. */
+  isWinner: boolean;
+}
+
+export interface DetailedMetricRow {
+  metric: string;
+  label: string;
+  direction: MetricDirection;
+  cells: ScenarioCell[];
+}
+
+export interface DetailedComparison {
+  scenarioCount: number;
+  baselineIndex: number;
+  rows: DetailedMetricRow[];
+}
+
+function isWinnerValue(value: number | boolean | null, best: number | boolean | null, direction: MetricDirection): boolean {
+  if (value === null || best === null) return false;
+  if (direction === 'boolean') return value === true && best === true;
+  return value === best;
+}
+
+/** The best value among a metric's values, per direction (null if no comparable values). */
+function bestValue(values: Array<number | boolean | null>, direction: MetricDirection): number | boolean | null {
+  if (direction === 'boolean') return values.some((v) => v === true) ? true : null;
+  const nums = values.filter((v): v is number => typeof v === 'number');
+  if (nums.length === 0) return null;
+  return direction === 'higher' ? Math.max(...nums) : Math.min(...nums);
+}
+
+/**
+ * Enriched comparison for 2–4 scenarios: per-metric deltas and % differences against a baseline
+ * scenario (default the first), plus a winner flag on the best scenario for each metric. A plain
+ * serializable object for the diff table / overlay UI.
+ */
+export function compareScenariosDetailed(results: ScenarioResult[], baselineIndex = 0): DetailedComparison {
+  const base = Math.min(Math.max(0, baselineIndex), Math.max(0, results.length - 1));
+  return {
+    scenarioCount: results.length,
+    baselineIndex: base,
+    rows: METRICS.map((m) => {
+      const values = results.map((r) => m.get(r));
+      const best = bestValue(values, m.direction);
+      const baselineValue = values[base] ?? null;
+      const cells: ScenarioCell[] = values.map((value) => {
+        const numeric = typeof value === 'number' && typeof baselineValue === 'number';
+        const deltaVsBaseline = numeric ? value - baselineValue : null;
+        const pctVsBaseline = numeric && baselineValue !== 0 ? (value - baselineValue) / Math.abs(baselineValue) : null;
+        return { value, deltaVsBaseline, pctVsBaseline, isWinner: isWinnerValue(value, best, m.direction) };
+      });
+      return { metric: m.metric, label: m.label, direction: m.direction, cells };
+    }),
+  };
+}
+
+// --- CPP / OAS break-even ages (interpolated) ---------------------------------------------------
 
 export interface BreakEvenResult {
-  /** Age at which deferring CPP from 60 to 65 overtakes in cumulative CPP received. */
+  /** Fractional age at which deferring CPP from 60 to 65 overtakes in cumulative CPP received. */
   cppBreakEvenAge?: number;
-  /** Age at which deferring OAS from 65 to 70 overtakes in cumulative OAS received. */
+  /** Fractional age at which deferring OAS from 65 to 70 overtakes in cumulative OAS received. */
   oasBreakEvenAge?: number;
 }
 
 /**
- * First age at which the deferred run's cumulative benefit reaches the early run's — the break-even.
- * Benefits are aligned by age; the early run leads until the larger deferred payments catch up.
+ * Fractional age at which the deferred run's cumulative benefit reaches the early run's. The early
+ * run leads until the larger deferred payments catch up; we track the cumulative gap by age and
+ * LINEARLY INTERPOLATE the exact crossover between the last age it is negative and the first age it
+ * turns non-negative — so the break-even is a fractional age (e.g. 73.4), not just the integer year.
  */
-function crossoverAge(
-  early: ScenarioResult,
-  deferred: ScenarioResult,
-  pick: (r: YearRow) => number,
-): number | undefined {
+function crossoverAge(early: ScenarioResult, deferred: ScenarioResult, pick: (r: YearRow) => number): number | undefined {
   const earlyByAge = new Map(early.rows.map((r) => [r.ageA, pick(r)]));
   const deferredByAge = new Map(deferred.rows.map((r) => [r.ageA, pick(r)]));
   const ages = [...new Set([...earlyByAge.keys(), ...deferredByAge.keys()])].sort((a, b) => a - b);
 
   let cumEarly = 0;
   let cumDeferred = 0;
+  let prevAge: number | undefined;
+  let prevGap: number | undefined; // cumDeferred − cumEarly at the previous age
   for (const age of ages) {
     cumEarly += earlyByAge.get(age) ?? 0;
     cumDeferred += deferredByAge.get(age) ?? 0;
-    // Once the deferred benefit has started and caught up, that's the break-even age.
-    if (cumDeferred > 0 && cumDeferred >= cumEarly) return age;
+    const gap = cumDeferred - cumEarly;
+    if (cumDeferred > 0 && gap >= 0) {
+      if (prevGap !== undefined && prevGap < 0 && prevAge !== undefined) {
+        // Interpolate where the gap crosses zero between prevAge (gap<0) and age (gap>=0).
+        const fraction = -prevGap / (gap - prevGap);
+        return prevAge + fraction * (age - prevAge);
+      }
+      return age;
+    }
+    prevAge = age;
+    prevGap = gap;
   }
   return undefined;
 }
@@ -108,28 +186,14 @@ function crossoverAge(
  * CPP and OAS break-even ages for this household/scenario. CPP compares starting at 60 vs 65, OAS at
  * 65 vs 70 (OAS cannot start before 65), holding all other levers fixed. For the canonical figures
  * the projection must span the start ages (retire ≤ 60, end age past the crossover); a household that
- * retires later will shift the CPP figure since the early benefit can't be received pre-retirement.
+ * retires later shifts the CPP figure since the early benefit can't be received pre-retirement.
  */
 export function breakEven(household: Household, scenario: Scenario): BreakEvenResult {
-  const withCpp = (age: number): Scenario => ({
-    ...scenario,
-    cppStartAge: { ...scenario.cppStartAge, memberA: age },
-  });
-  const withOas = (age: number): Scenario => ({
-    ...scenario,
-    oasStartAge: { ...scenario.oasStartAge, memberA: age },
-  });
+  const withCpp = (age: number): Scenario => ({ ...scenario, cppStartAge: { ...scenario.cppStartAge, memberA: age } });
+  const withOas = (age: number): Scenario => ({ ...scenario, oasStartAge: { ...scenario.oasStartAge, memberA: age } });
 
-  const cppBreakEvenAge = crossoverAge(
-    runScenario(household, withCpp(60)),
-    runScenario(household, withCpp(65)),
-    (r) => r.cpp,
-  );
-  const oasBreakEvenAge = crossoverAge(
-    runScenario(household, withOas(65)),
-    runScenario(household, withOas(70)),
-    (r) => r.oas,
-  );
-
-  return { cppBreakEvenAge, oasBreakEvenAge };
+  return {
+    cppBreakEvenAge: crossoverAge(runScenario(household, withCpp(60)), runScenario(household, withCpp(65)), (r) => r.cpp),
+    oasBreakEvenAge: crossoverAge(runScenario(household, withOas(65)), runScenario(household, withOas(70)), (r) => r.oas),
+  };
 }
