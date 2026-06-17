@@ -20,19 +20,24 @@ import { DEFAULT_CONFIG, type YearConfig } from '../config';
 import { flatPath } from '../paths';
 import { runProjection, type TaxFn } from '../projection';
 import { runMonteCarlo, type MakeRun } from '../montecarlo';
-import { totalTax } from '../tax';
+import { householdTaxWithSplitting, totalTax } from '../tax';
 
 /**
- * The real tax seam: the projection asks for total federal + provincial tax on the year's taxable
- * income; we answer with `lib/tax`. Single-filer (the projection is single-person — couple-mode
- * splitting via `householdTaxWithSplitting` plugs in here when the projection models a spouse).
+ * The real tax seam: the projection asks for the year's total federal + provincial tax; we answer
+ * with `lib/tax`. For a couple (both spouses alive) the projection hands over per-member profiles
+ * and we apply the automated pension split (`householdTaxWithSplitting`); otherwise we file a single
+ * return. The per-member profile shape matches `lib/tax`'s `TaxProfile` exactly.
  */
-const taxAdapter: TaxFn = (ctx) =>
-  totalTax(ctx.taxableIncome, ctx.province, {
+const taxAdapter: TaxFn = (ctx) => {
+  if (ctx.filingStatus === 'couple' && ctx.members) {
+    return householdTaxWithSplitting(ctx.members[0], ctx.members[1], ctx.province).tax;
+  }
+  return totalTax(ctx.taxableIncome, ctx.province, {
     age: ctx.age,
     netIncome: ctx.taxableIncome,
     eligiblePensionIncome: ctx.pensionIncome,
   });
+};
 
 /** Number of projected years = retirement age … end age, inclusive (matches the projection loop). */
 function projectionYears(household: Household, scenario: Scenario): number {
