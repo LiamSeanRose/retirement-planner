@@ -29,7 +29,7 @@ import {
   interestTaxableAmount,
   rrifMinimum,
 } from '../accounts';
-import { householdFilingStatus, survivorAllowanceAnnual } from '../survivor';
+import { householdFilingStatus, survivorAllowanceAnnual, survivorCppBenefitAnnual } from '../survivor';
 import { eriWaiverApplies, secondCareerIncomeForYear, wfaLumpSumForYear } from '../workforce';
 
 const pctToFraction = (pct: number): number => pct / 100;
@@ -265,6 +265,17 @@ export function runProjection(
       memberB: { pension: 0, bridge: 0, cpp: 0, oas: 0, secondCareer: 0, lumpSum: 0 },
     };
     for (const p of plans) linesById[p.id] = memberLines(p, ageById[p.id], aliveById[p.id], idxFraction, scenario, config);
+
+    // CPP survivor benefit (§19): after a death the survivor receives a capped fraction of the
+    // deceased's CPP on top of their own (combined-benefit maximum applied in lib/survivor).
+    if (isCouple && !bothAlive) {
+      const dead = plans.find((p) => !aliveById[p.id]);
+      const alive = plans.find((p) => aliveById[p.id]);
+      if (dead && alive) {
+        const deadCpp = ageById[dead.id] >= dead.cppStartAge ? dead.cppAnnual : 0;
+        linesById[alive.id].cpp += survivorCppBenefitAnnual(deadCpp, linesById[alive.id].cpp, config);
+      }
+    }
 
     // --- Mandatory RRIF minimum (taxable), per member on their share of the registered pool ---
     const jan1Rrsp = balances.rrsp;
