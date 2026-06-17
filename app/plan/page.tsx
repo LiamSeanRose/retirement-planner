@@ -154,7 +154,7 @@ export default function PlanPage() {
         {labOpen ? 'Hide plan inputs ▴' : 'Edit plan inputs ▾'}
       </button>
       <div className="mt-4 grid gap-6 lg:mt-6 lg:grid-cols-[380px_1fr]">
-        <aside className={`${labOpen ? 'block' : 'hidden'} lg:!block lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:self-start lg:overflow-y-auto lg:pr-1`}>
+        <aside className={`${labOpen ? 'block' : 'hidden'} lg:!block lg:self-start`}>
           <ScenarioLab household={household} scenario={scenario} onHousehold={setHousehold} onScenario={setScenario} />
         </aside>
         <main className="space-y-5" aria-live="polite" aria-busy={mcLoading}>
