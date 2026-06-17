@@ -27,6 +27,7 @@
   --c-tfsa: #7a8a99;
   --c-nonreg: #9a6b58;
   --c-other: #a4302a;
+  --c-home: #3f5d6b; /* principal residence — a calm slate against the warm account tones */
 }
 
 * {

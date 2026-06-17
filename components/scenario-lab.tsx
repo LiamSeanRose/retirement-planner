@@ -89,6 +89,8 @@ export function ScenarioLab({
   const setAccounts = (accounts: Account[]) => onHousehold({ ...household, accounts });
   const patchAccount = (id: string, patch: Partial<Account>) =>
     setAccounts(household.accounts.map((acc) => (acc.id === id ? { ...acc, ...patch } : acc)));
+  const setHome = (patch: Partial<NonNullable<Household['home']>>) =>
+    household.home && onHousehold({ ...household, home: { ...household.home, ...patch } });
 
   const retireAge = m.targetRetirementAge;
   const ev = scenario.events;
@@ -174,6 +176,39 @@ export function ScenarioLab({
               onChange={(on) => setAssumptions({ lifUnlock50: on })}
             />
           ) : null}
+        </div>
+      </Card>
+
+      {/* ---- Home / real estate ---- */}
+      <Card>
+        <CardHeader eyebrow="Real estate" title="Principal residence" />
+        <div className="p-5">
+          <Toggle
+            label="Own a home"
+            description="An illiquid asset that appreciates on its own track and passes to the estate tax-free (principal-residence exemption). Never drawn for spending unless you downsize."
+            checked={!!household.home}
+            onChange={(on) => onHousehold({ ...household, home: on ? { currentValue: 600_000, appreciationPct: a.inflationPct } : undefined })}
+          >
+            {household.home ? (
+              <>
+                <NumberField label="Home value" value={household.home.currentValue} onChange={(v) => setHome({ currentValue: v })} prefix="$" step={25_000} />
+                <RangeField label="Appreciation" value={household.home.appreciationPct ?? a.inflationPct} min={0} max={8} step={0.1} onChange={(v) => setHome({ appreciationPct: v })} format={(v) => `${v.toFixed(1)}% / yr`} />
+                <Toggle
+                  label="Plan to downsize / sell"
+                  description="Free a share of the (tax-free) equity into non-registered savings at a chosen age — cash the drawdown can then spend."
+                  checked={!!ev.homeDownsize}
+                  onChange={(on) => setEvents({ homeDownsize: on ? { atAge: Math.max(retireAge, 70), releasedEquityPct: 0.4 } : undefined })}
+                >
+                  {ev.homeDownsize ? (
+                    <div className="grid grid-cols-2 gap-3">
+                      <RangeField label="Downsize at" value={ev.homeDownsize.atAge} min={retireAge} max={a.endAge} onChange={(v) => setEvents({ homeDownsize: { ...ev.homeDownsize!, atAge: v } })} format={(v) => `age ${v}`} />
+                      <RangeField label="Equity freed" value={Math.round(ev.homeDownsize.releasedEquityPct * 100)} min={10} max={100} step={5} onChange={(v) => setEvents({ homeDownsize: { ...ev.homeDownsize!, releasedEquityPct: v / 100 } })} format={(v) => `${v}%`} />
+                    </div>
+                  ) : null}
+                </Toggle>
+              </>
+            ) : null}
+          </Toggle>
         </div>
       </Card>
 

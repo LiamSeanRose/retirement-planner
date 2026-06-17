@@ -95,6 +95,46 @@ describe('variable spending phases (go-go / slow-go / no-go)', () => {
   });
 });
 
+describe('principal residence (home) + downsizing', () => {
+  const withHome: Household = { ...household, home: { currentValue: 600_000, appreciationPct: 3 } };
+  const base = runScenario(household, scenario);
+  const homed = runScenario(withHome, scenario);
+
+  it('appreciates each year and is reported separately from liquid net worth', () => {
+    expect(base.rows[0].homeValue).toBe(0); // no home ⇒ 0
+    expect(homed.rows[0].homeValue).toBeGreaterThan(600_000); // grew in the first year (3%)
+    expect(homed.rows.at(-1)!.homeValue).toBeGreaterThan(homed.rows[0].homeValue); // keeps appreciating
+    // The illiquid home is NOT in liquid net worth — the four-account net worth matches the no-home plan.
+    expect(homed.rows[5].netWorth).toBeCloseTo(base.rows[5].netWorth, 6);
+  });
+
+  it('passes to the estate TAX-FREE (principal-residence exemption)', () => {
+    // The home never touches the liquid drawdown, so the estate rises by EXACTLY the final home value.
+    const delta = homed.totals.estateValue - base.totals.estateValue;
+    expect(delta).toBeCloseTo(homed.rows.at(-1)!.homeValue, 2);
+  });
+
+  it('releases equity TAX-FREE on a downsize — no tax in the sale year when no withdrawal is needed', () => {
+    const lowSpend = { ...scenario, assumptions: { ...scenario.assumptions, targetAnnualSpending: 20_000 } };
+    const noSale = runScenario(withHome, lowSpend);
+    const sale = runScenario(withHome, { ...lowSpend, events: { homeDownsize: { atAge: 75, releasedEquityPct: 0.5 } } });
+    const sY = sale.rows.find((r) => r.ageA === 75)!;
+    const nY = noSale.rows.find((r) => r.ageA === 75)!;
+    expect(sY.tax).toBeCloseTo(nY.tax, 6); // the sale adds NO taxable income in its year
+    expect(sY.balances.nonReg).toBeGreaterThan(nY.balances.nonReg); // proceeds landed in non-reg
+    expect(sY.homeValue).toBeLessThan(nY.homeValue); // and left the residence
+  });
+
+  it('freed equity extends how long spending is sustained (a downsize trades estate for income)', () => {
+    const strain = { ...scenario, assumptions: { ...scenario.assumptions, targetAnnualSpending: 110_000 } };
+    const noSale = runScenario(withHome, strain);
+    const sale = runScenario(withHome, { ...strain, events: { homeDownsize: { atAge: 70, releasedEquityPct: 1 } } });
+    // Selling the home pours its equity into liquid savings, so liquid net worth stays positive longer.
+    const lastSolventAge = (res: typeof noSale) => [...res.rows].reverse().find((r) => r.netWorth > 1)?.ageA ?? 0;
+    expect(lastSolventAge(sale)).toBeGreaterThan(lastSolventAge(noSale));
+  });
+});
+
 describe('runScenario (deterministic, end-to-end)', () => {
   const result = runScenario(household, scenario);
 
