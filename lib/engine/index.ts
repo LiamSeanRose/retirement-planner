@@ -15,9 +15,16 @@
  * the single-path projection; per-asset paths are a later refinement).
  */
 
-import type { Account, Household, MonteCarloResult, Scenario, ScenarioResult } from '../../types/planner';
+import type {
+  Account,
+  AccountType,
+  Household,
+  MonteCarloResult,
+  ReturnPathByType,
+  Scenario,
+  ScenarioResult,
+} from '../../types/planner';
 import { DEFAULT_CONFIG, type YearConfig } from '../config';
-import { flatPath } from '../paths';
 import { runProjection, type TaxFn } from '../projection';
 import { runMonteCarlo, type MakeRun } from '../montecarlo';
 import { householdTaxWithSplitting, totalTax } from '../tax';
@@ -61,26 +68,50 @@ export function blendedRiskProfile(accounts: Account[]): { meanPct: number; volP
   return { meanPct: avg((a) => a.riskProfile.expectedReturn), volPct: avg((a) => a.riskProfile.volatility) };
 }
 
+/** Balance-weighted return/volatility (percent) for EACH account type — drives per-account growth. */
+export function blendedRiskProfileByType(accounts: Account[]): Record<AccountType, { meanPct: number; volPct: number }> {
+  const forType = (type: AccountType) => blendedRiskProfile(accounts.filter((a) => a.type === type));
+  return { rrsp: forType('rrsp'), tfsa: forType('tfsa'), nonReg: forType('nonReg') };
+}
+
 /**
- * One deterministic projection of `household` under `scenario`: build a flat return path from the
- * blended account return + the scenario's inflation/indexing, taxed by the real tax engine.
+ * One deterministic projection of `household` under `scenario`: build a flat path whose returns are
+ * PER ACCOUNT TYPE (each type's balance-weighted expected return), with the scenario's
+ * inflation/indexing, taxed by the real tax engine.
  */
 export function runScenario(household: Household, scenario: Scenario, config: YearConfig = DEFAULT_CONFIG): ScenarioResult {
-  const path = flatPath({
-    years: projectionYears(household, scenario),
-    returnPct: blendedRiskProfile(household.accounts).meanPct,
-    inflationPct: scenario.assumptions.inflationPct,
-    indexingPct: scenario.assumptions.indexingPct,
-  });
+  const years = projectionYears(household, scenario);
+  const byType = blendedRiskProfileByType(household.accounts);
+  const blended = blendedRiskProfile(household.accounts);
+  const { inflationPct, indexingPct } = scenario.assumptions;
+  const path: ReturnPathByType = Array.from({ length: years }, () => ({
+    returnPct: blended.meanPct, // fallback for any consumer that ignores returnByType
+    inflationPct,
+    indexingPct,
+    returnByType: { rrsp: byType.rrsp.meanPct, tfsa: byType.tfsa.meanPct, nonReg: byType.nonReg.meanPct },
+  }));
   return runProjection(household, scenario, path, taxAdapter, config);
 }
 
 /**
- * Monte Carlo over the same projection: the aggregator samples each run's return path from the
- * blended Normal(meanPct, volPct) and we run the real projection over it. Returns the canonical §12
- * `MonteCarloResult` — relabelling the aggregator's 0-based year bands to ages. Reproducible under
- * a fixed `seed`. After-tax bands are deferred (the injected run reports net worth, not an after-tax
- * series; adding it needs the Monte Carlo `RunOutcome` extended — a follow-up).
+ * Run one projection over a CALLER-SUPPLIED return path (stress scenarios, what-ifs, replays). The
+ * path may carry per-type returns (`returnByType`) or just a single `returnPct` per year. Same tax
+ * seam as `runScenario`; `runScenario` is the flat-path convenience over this.
+ */
+export function runScenarioOverPath(
+  household: Household,
+  scenario: Scenario,
+  path: ReturnPathByType,
+  config: YearConfig = DEFAULT_CONFIG,
+): ScenarioResult {
+  return runProjection(household, scenario, path, taxAdapter, config);
+}
+
+/**
+ * Monte Carlo over the same projection: the aggregator samples each run's return path PER ACCOUNT
+ * TYPE (independent draws from each type's Normal(meanPct, volPct)) and we run the real projection
+ * over it. Returns the canonical §12 `MonteCarloResult` with net-worth AND after-tax fan-chart bands
+ * (0-based year bands relabelled to ages). Reproducible under a fixed `seed`.
  */
 export function runMonteCarloScenario(
   household: Household,
@@ -90,12 +121,13 @@ export function runMonteCarloScenario(
 ): MonteCarloResult {
   const retirementAge = household.memberA.targetRetirementAge;
   const years = projectionYears(household, scenario);
-  const { meanPct, volPct } = blendedRiskProfile(household.accounts);
+  const distributionByType = blendedRiskProfileByType(household.accounts);
 
   const makeRun: MakeRun = (path) => {
     const result = runProjection(household, scenario, path, taxAdapter, config);
     return {
       netWorthByYear: result.rows.map((r) => r.netWorth),
+      afterTaxByYear: result.rows.map((r) => r.afterTax),
       lastsToEndAge: result.totals.lastsToEndAge,
       estateValue: result.totals.estateValue,
       lifetimeTax: result.totals.lifetimeTax,
@@ -106,14 +138,22 @@ export function runMonteCarloScenario(
     years,
     runs: scenario.assumptions.runs,
     seed,
-    distribution: { meanPct, volPct },
+    distributionByType,
     assumptions: { inflationPct: scenario.assumptions.inflationPct, indexingPct: scenario.assumptions.indexingPct },
   });
 
+  const toAgeBand = (b: { year: number; p5: number; p25: number; p50: number; p75: number; p95: number }) => ({
+    age: retirementAge + b.year,
+    p5: b.p5,
+    p25: b.p25,
+    p50: b.p50,
+    p75: b.p75,
+    p95: b.p95,
+  });
   return {
     probabilityOfSuccess: mc.probabilityOfSuccess,
-    netWorth: mc.netWorth.map((b) => ({ age: retirementAge + b.year, p5: b.p5, p25: b.p25, p50: b.p50, p75: b.p75, p95: b.p95 })),
-    afterTax: [], // deferred — see note above
+    netWorth: mc.netWorth.map(toAgeBand),
+    afterTax: mc.afterTax.map(toAgeBand),
     estateValue: { p5: mc.estateValue.p5, p50: mc.estateValue.p50, p95: mc.estateValue.p95, mean: mc.estateValue.mean },
     lifetimeTax: { p5: mc.lifetimeTax.p5, p50: mc.lifetimeTax.p50, p95: mc.lifetimeTax.p95, mean: mc.lifetimeTax.mean },
   };
