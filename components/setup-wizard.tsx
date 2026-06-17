@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import type { Household, Province, Scenario } from '@/types/planner';
 import { buildPlanFromAnswers, extractCppEstimate, money, WIZARD_DEFAULTS, type CppExtraction, type WizardAnswers } from '@/lib/share';
 import { NumberField, RangeField, SelectField, Segmented, Toggle } from './ui/controls';
+import { AiImport } from './ai-import';
 
 /** Private, in-browser import: paste the Service Canada estimate text and pull out the age-65 figure. */
 function CppPasteImporter({ onUse }: { onUse: (amount: number) => void }) {
@@ -101,6 +102,7 @@ export function SetupWizard({
         <div className="space-y-4 overflow-y-auto px-6 py-5">
           {step === 0 && (
             <>
+              <AiImport onExtract={(partial) => set(partial)} />
               <RangeField label="Your birth year" value={ans.birthYear} min={1945} max={1995} onChange={(v) => set({ birthYear: v })} format={(v) => `${v} · age ${THIS_YEAR - v}`} />
               <div>
                 <p className="mb-1.5 text-[0.8125rem] font-medium text-muted">When did you join the federal public service?</p>
