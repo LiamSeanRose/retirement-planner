@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { runProjection, type TaxFn } from './index';
+import { runProjection, type TaxFn, type TaxMemberProfile } from './index';
 import { flatPath } from '../paths';
 import { rrifFactor } from '../accounts';
 import { DEFAULT_CONFIG } from '../config';
+import { householdTaxWithSplitting, totalTax } from '../tax';
+import { survivorAllowanceAnnual } from '../survivor';
 import type { Household, Scenario } from '../../types/planner';
 
 const near = (a: number, b: number, tol = 1e-6): void => expect(Math.abs(a - b)).toBeLessThanOrEqual(tol);
@@ -146,5 +148,110 @@ describe('runProjection — discretionary withdrawals fund spending and draw bal
     expect(rows[5].netWorth).toBeLessThan(rows[0].netWorth);
     expect(rows[rows.length - 1].netWorth).toBeLessThan(rows[5].netWorth);
     expect(result.totals.lastsToEndAge).toBe(false);
+  });
+});
+
+// ---- Couple mode (member A + member B), survivor rule, and automated pension splitting ----
+
+const couple: Household = {
+  province: 'ON',
+  memberA: {
+    birthDate: '1962-01-01',
+    planJoinDate: '2000-01-01', // Group 1, unreduced at 60 + 35 yrs
+    currentSalary: 130_000,
+    bestFiveAvgSalary: 130_000,
+    pensionableServiceYears: 35,
+    targetRetirementAge: 60,
+    estimatedCppAt65Monthly: 1_300,
+    oasEligible: true,
+  },
+  memberB: {
+    birthDate: '1962-01-01',
+    planJoinDate: '2008-01-01', // Group 1, unreduced at 60 + 2 yrs
+    currentSalary: 55_000,
+    bestFiveAvgSalary: 55_000,
+    pensionableServiceYears: 10,
+    targetRetirementAge: 60,
+    estimatedCppAt65Monthly: 500,
+    oasEligible: true,
+  },
+  accounts: [
+    { id: 'ra', owner: 'memberA', type: 'rrsp', currentBalance: 500_000, riskProfile: { expectedReturn: 4, volatility: 10 } },
+    { id: 'rb', owner: 'memberB', type: 'rrsp', currentBalance: 150_000, riskProfile: { expectedReturn: 4, volatility: 10 } },
+    { id: 't', owner: 'joint', type: 'tfsa', currentBalance: 80_000, riskProfile: { expectedReturn: 4, volatility: 10 } },
+    { id: 'n', owner: 'joint', type: 'nonReg', currentBalance: 120_000, riskProfile: { expectedReturn: 4, volatility: 10 } },
+  ],
+};
+
+const coupleScenario: Scenario = {
+  cppStartAge: { memberA: 65, memberB: 65 },
+  oasStartAge: { memberA: 65, memberB: 65 },
+  meltdown: { mode: 'none' },
+  assumptions: { inflationPct: 2, indexingPct: 2, endAge: 90, mode: 'deterministic', targetAnnualSpending: 70_000 },
+  events: {},
+};
+
+// Real tax with vs without the pension split — mirrors how the engine wires lib/tax for a couple.
+const profileTax = (m: TaxMemberProfile): number =>
+  totalTax(m.ordinaryIncome + m.psppPension + m.rrifIncome, 'ON', {
+    age: m.age,
+    eligiblePensionIncome: m.psppPension + (m.age >= 65 ? m.rrifIncome : 0),
+  });
+const splitTax: TaxFn = (ctx) =>
+  ctx.filingStatus === 'couple' && ctx.members
+    ? householdTaxWithSplitting(ctx.members[0], ctx.members[1], ctx.province).tax
+    : totalTax(ctx.taxableIncome, ctx.province, { age: ctx.age, eligiblePensionIncome: ctx.pensionIncome });
+const noSplitTax: TaxFn = (ctx) =>
+  ctx.filingStatus === 'couple' && ctx.members
+    ? profileTax(ctx.members[0]) + profileTax(ctx.members[1])
+    : totalTax(ctx.taxableIncome, ctx.province, { age: ctx.age, eligiblePensionIncome: ctx.pensionIncome });
+
+describe('runProjection — couple mode', () => {
+  it("projects BOTH members' pensions/bridges and files as a couple while both are alive", () => {
+    const r0 = runProjection(couple, coupleScenario, path, splitTax).rows[0];
+    expect(r0.ageA).toBe(60);
+    expect(r0.ageB).toBe(60);
+    expect(r0.filingStatus).toBe('couple');
+    near(r0.pension, 75_866.875 + 7_562.5); // member A lifetime + member B lifetime
+    near(r0.bridge, 15_133.125 + 3_437.5); // both bridges
+  });
+});
+
+describe('runProjection — survivor rule (§19)', () => {
+  const death: Scenario = { ...coupleScenario, events: { earlyMortality: { member: 'memberB', atAge: 63 } } };
+  const alive = runProjection(couple, coupleScenario, path, splitTax);
+  const widowed = runProjection(couple, death, path, splitTax);
+
+  it('flips filing couple → single from the year of death', () => {
+    expect(widowed.rows[2].filingStatus).toBe('couple'); // both alive at 62
+    expect(widowed.rows[3].ageB).toBe(63);
+    expect(widowed.rows[3].filingStatus).toBe('single'); // member B died at 63
+  });
+
+  it('cuts the deceased pension to the survivor allowance and stops their bridge', () => {
+    expect(widowed.rows[3].pension).toBeLessThan(alive.rows[3].pension);
+    expect(widowed.rows[3].bridge).toBeLessThan(alive.rows[3].bridge);
+    // The pension drop = member B's lifetime − survivor allowance, both indexed to year 3.
+    const drop = (7_562.5 - survivorAllowanceAnnual(couple.memberB!)) * Math.pow(1.02, 3);
+    near(alive.rows[3].pension - widowed.rows[3].pension, drop, 1e-3);
+  });
+});
+
+describe('runProjection — automated pension splitting', () => {
+  it("lowers a couple's tax versus filing two single returns", () => {
+    const split = runProjection(couple, coupleScenario, path, splitTax);
+    const noSplit = runProjection(couple, coupleScenario, path, noSplitTax);
+    expect(split.totals.lifetimeTax).toBeLessThan(noSplit.totals.lifetimeTax);
+    expect(split.rows[0].tax).toBeLessThan(noSplit.rows[0].tax); // helps in an ordinary both-alive year too
+  });
+});
+
+describe('runProjection — single-person regression', () => {
+  it('a household with no member B still files single, with no member-B fields', () => {
+    const single: Household = { province: 'ON', memberA: couple.memberA, accounts: [couple.accounts[0]] };
+    const res = runProjection(single, coupleScenario, path, splitTax);
+    expect(res.rows[0].filingStatus).toBe('single');
+    expect(res.rows[0].ageB).toBeUndefined();
+    expect(res.reductionPct.memberB).toBeUndefined();
   });
 });
