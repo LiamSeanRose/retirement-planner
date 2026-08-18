@@ -11,11 +11,7 @@ coverage/
 next-env.d.ts
 
 # AI / assistant artifacts — NEVER commit or push these (kept strictly local)
-CLAUDE.md
-CLAUDE.local.md
-.claude/
 .cursor/
 .aider*
 .github/copilot*
-**/*.claude.*
 AGENTS.md
